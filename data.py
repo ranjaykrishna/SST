@@ -103,7 +103,7 @@ class DataSplit(Dataset):
     def __getitem__(self, index):
         # Now let's get the video_id
         video_id = self.video_ids[index]
-        features = self.corpus.features[video_id]['c3d_features']
+        features = self.features[video_id]['c3d_features']
         nfeats = features.shape[0]
         duration = self.durations[video_id]
         timestamps = self.segments[video_id]
