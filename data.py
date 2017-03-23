@@ -133,11 +133,11 @@ class DataSplit(Dataset):
             unrolled[j, 0:w_end-w_start, :] = features[w_start:w_end:1, :]
 
         # Let's sample the maximum number of windows we can pass back.
-        nbatches = min(self.max_W, nWindows)
-        sample = np.random.choice(nbatches, nWindows)
-        unrolled = unrolled[sample, :, :]
-        masks = masks[sample, :, :]
-        labels = labels[sample, :, :]
+        if self.max_W < nWindows:
+            sample = np.random.choice(self.max_W, nWindows)
+            unrolled = unrolled[sample, :, :]
+            masks = masks[sample, :, :]
+            labels = labels[sample, :, :]
         return torch.FloatTensor(unrolled), torch.Tensor(masks), torch.Tensor(labels)
 
     def __len__(self):
