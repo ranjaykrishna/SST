@@ -15,7 +15,6 @@ class SST(nn.Module):
         rnn_type='GRU',
         rnn_num_layers=2,
         rnn_dropout=0.2,
-        rnn_batch_size=256,
     ):
         super(SST, self).__init__()
         self.rnn = getattr(nn, rnn_type)(video_dim, hidden_dim, rnn_num_layers, batch_first=True, dropout=rnn_dropout)
@@ -28,7 +27,6 @@ class SST(nn.Module):
         self.rnn_num_layers = rnn_num_layers
         self.rnn_dropout = rnn_dropout
         self.K = K
-        self.rnn_batch_size = rnn_batch_size
 
     def eval(self):
         self.rnn.dropout = 0
