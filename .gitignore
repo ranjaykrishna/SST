@@ -1,3 +1,4 @@
 *.json
 *.hdf5
+*.pyc
 data/*
