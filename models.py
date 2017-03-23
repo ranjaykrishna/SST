@@ -8,8 +8,6 @@ class SST(nn.Module):
 
     def __init__(self,
         video_dim=500,
-        videohidden_dim=512,
-        videovec_dim=512,
         hidden_dim=512,
         dropout=0,
         W=64,
@@ -20,13 +18,11 @@ class SST(nn.Module):
         rnn_batch_size=256,
     ):
         super(SST, self).__init__()
-        self.rnn = getattr(nn, rnn_type)(videovec_dim, hidden_dim, rnn_num_layers, batch_first=True, dropout=rnn_dropout)
+        self.rnn = getattr(nn, rnn_type)(video_dim, hidden_dim, rnn_num_layers, batch_first=True, dropout=rnn_dropout)
         self.scores = torch.nn.Linear(hidden_dim, K)
 
         # Saving arguments
         self.video_dim = video_dim
-        self.videohidden_dim = videohidden_dim
-        self.videovec_dim = videovec_dim
         self.W = W
         self.rnn_type = rnn_type
         self.rnn_num_layers = rnn_num_layers
