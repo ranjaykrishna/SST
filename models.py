@@ -32,7 +32,6 @@ class SST(nn.Module):
         self.rnn.dropout = 0
 
     def forward(self, features):
-        features = features[0, :, :, :]
         N, T, _ = features.size()
 
         rnn_output, _ = self.rnn(features)
@@ -45,8 +44,8 @@ class SST(nn.Module):
         """
         Used mainly for checking the actual loss function
         """
-        labels = torch.autograd.Variable(labels[0, :, :, :])
-        masks = torch.autograd.Variable(masks[0, :, :, :])
+        labels = torch.autograd.Variable(labels)
+        masks = torch.autograd.Variable(masks)
         outputs = outputs.view(-1, self.W, self.K)
         loss = 0.0
         print outputs.size()
