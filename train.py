@@ -75,6 +75,8 @@ parser.add_argument('--shuffle', type=int, default=1,
                     help='whether to shuffle the data')
 parser.add_argument('--nthreads', type=int, default=1,
                     help='number of worker threas used to load data')
+parser.add_argument('--resume', dest='resume', action='store_true',
+                    help='reload the model')
 args = parser.parse_args()
 
 # Ensure that the kernel for RNN is greated than the number of proposals
@@ -129,10 +131,8 @@ print "| Data Loaded: # training data: %d, # val data: %d" % (len(train_loader)*
 if args.resume:
     model = torch.load(os.path.join(args.save, 'model.pth'))
 else:
-    model = models.MultiPropModel(
+    model = models.SST(
         video_dim=args.video_dim,
-        videohidden_dim=args.videohidden_dim,
-        videovec_dim=args.videovec_dim,
         hidden_dim=args.hidden_dim,
         dropout=args.dropout,
         W=args.W,
@@ -140,7 +140,6 @@ else:
         rnn_type = args.rnn_type,
         rnn_num_layers = args.rnn_num_layers,
         rnn_dropout = args.rnn_dropout,
-        rnn_batch_size = args.rnn_batch_size,
     )
 
 if args.cuda:
