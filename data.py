@@ -66,7 +66,6 @@ class DataSplit(Dataset):
         self.num_samples = args.num_samples
         self.W = args.W
         self.K = args.K
-        self.strides = args.strides
         self.max_W = args.max_W
 
     def iou(self, interval, featstamps):
