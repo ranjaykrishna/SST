@@ -17,11 +17,11 @@ parser = argparse.ArgumentParser(description='video features to LSTM Language Mo
 # Location of data
 parser.add_argument('--dataset', type=str, default='ActivityNet',
                     help='Name of the data class to use from data.py')
-parser.add_argument('--data', type=str, default='../data/ActivityNet/activity_net.v1-3.min.json',
+parser.add_argument('--data', type=str, default='data/ActivityNet/activity_net.v1-3.min.json',
                     help='location of the dataset')
-parser.add_argument('--features-path', type=str, default='/data/kenjihata/actiongenome/data/ActivityNet/Features/C3D/sub_activitynet_v1-3.c3d.hdf5',
+parser.add_argument('--features', type=str, default='data/ActivityNet/sub_activitynet_v1-3.c3d.hdf5',
                     help='location of the video features')
-parser.add_argument('--save', type=str,  default='../data/proposals/default',
+parser.add_argument('--save', type=str,  default='data/models/default',
                     help='path to folder where to save the final model and log files and corpus')
 parser.add_argument('--save-every', type=int,  default=1,
                     help='Save the model every x epochs')
