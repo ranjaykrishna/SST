@@ -67,6 +67,7 @@ class DataSplit(Dataset):
         self.W = args.W
         self.K = args.K
         self.max_W = args.max_W
+        self.iou_threshold = args.iou_threshold
 
     def iou(self, interval, featstamps):
         """
@@ -92,18 +93,21 @@ class DataSplit(Dataset):
         end = max(int(round(end /duration * nfeats)), start+1)
         return start, end
 
-    def collate_fn(data):
+    def collate_fn(self, data):
         """
         This function will be used by the DataLoader to concatenate outputs from
         multiple called to __get__item(). It will concatanate the windows along
         the first dimension
         """
-        return torch.stack(data, dim=0)
+        features = [d[0] for d in data]
+        masks = [d[1] for d in data]
+        labels = [d[2] for d in data]
+        return torch.cat(features, 0), torch.cat(masks, 0), torch.cat(labels, 0)
 
     def __getitem__(self, index):
         # Now let's get the video_id
         video_id = self.video_ids[index]
-        features = self.features[video_id]['c3d_features']
+        features = self.features['v_' + video_id]['c3d_features']
         nfeats = features.shape[0]
         duration = self.durations[video_id]
         timestamps = self.segments[video_id]
@@ -112,7 +116,7 @@ class DataSplit(Dataset):
         unrolled = np.zeros((nWindows, self.W, features.shape[1]))
         masks = np.zeros((nWindows, self.W, self.K))
         labels = np.zeros((nWindows, self.W, self.K))
-        for j, w_start in enumerate(nWindows):
+        for j, w_start in enumerate(range(nWindows)):
             w_end = min(w_start + self.W, nfeats)
 
             for index in range(self.W): # This is the index of the window in window_space
