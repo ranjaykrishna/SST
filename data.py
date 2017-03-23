@@ -11,7 +11,7 @@ class ProposalDataset(object):
     All dataset parsing classes will inherit from this class.
     """
 
-    def __init(self, args):
+    def __init__(self, args):
         """
         args must contain the following:
             data - the file that contains the Activity Net json data.
