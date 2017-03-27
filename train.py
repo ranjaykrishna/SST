@@ -21,6 +21,8 @@ parser.add_argument('--data', type=str, default='data/ActivityNet/activity_net.v
                     help='location of the dataset')
 parser.add_argument('--features', type=str, default='data/ActivityNet/sub_activitynet_v1-3.c3d.hdf5',
                     help='location of the video features')
+parser.add_argument('--labels', type=str, default='data/ActivityNet/labels.hdf5',
+                    help='location of the proposal labels')
 parser.add_argument('--save', type=str,  default='data/models/default',
                     help='path to folder where to save the final model and log files and corpus')
 parser.add_argument('--save-every', type=int,  default=1,
@@ -117,8 +119,8 @@ with open(os.path.join(args.save, 'args.json'), 'w') as f:
 
 print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data, args.dataset)(args)
-train_dataset = DataSplit(dataset.training_ids, dataset.training_segments, dataset.training_durations, dataset.features, args)
-val_dataset = DataSplit(dataset.validation_ids, dataset.validation_segments, dataset.validation_durations, dataset.features, args)
+train_dataset = DataSplit(dataset.training_ids, dataset.features, dataset.labels, args)
+val_dataset = DataSplit(dataset.validation_ids, dataset.features, dataset.labels, args)
 print "| Dataset created"
 train_loader = DataLoader(train_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=train_dataset.collate_fn)
 val_loader = DataLoader(val_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
@@ -245,7 +247,7 @@ for epoch in range(1, args.epochs+1):
 
 # Run on test data and save the model.
 print "| Testing model on test set"
-test_dataset = DataSplit(dataset.testing_ids, dataset.testing_segments, dataset.testing_durations, dataset.features, args)
+test_dataset = DataSplit(dataset.testing_ids, dataset.features, dataset.labels, args)
 test_loader = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
 test_acc, test_precision, test_recall = evaluate(test_loader)
 print('=' * 89)

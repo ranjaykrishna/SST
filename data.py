@@ -4,6 +4,7 @@ import h5py
 import json
 import numpy as np
 import os
+import progressbar
 import torch
 
 class ProposalDataset(object):
@@ -21,53 +22,15 @@ class ProposalDataset(object):
         assert os.path.exists(args.features)
         self.data = json.load(open(args.data))
         self.features = h5py.File(args.features)
+        if not os.path.exists(args.labels):
+            self.generate_labels(args)
+        self.labels = h5py.File(args.labels)
 
-
-class ActivityNet(ProposalDataset):
-    """
-    ActivityNet is responsible for parsing the raw activity net dataset and converting it into a
-    format that DataSplit (defined below) can use. This level of abstraction is used so that
-    DataSplit can be used with other dataset and we would only need to write a class similar
-    to this one.
-    """
-
-    def __init__(self, args):
-        super(self.__class__, self).__init__(args)
-        for split in ['training', 'validation', 'testing']:
-            setattr(self, split + '_ids', [])
-            setattr(self, split + '_segments', {})
-            setattr(self, split + '_durations', {})
-        for video_id in self.data['database']:
-            split = self.data['database'][video_id]['subset']
-            annotations = self.data['database'][video_id]['annotations']
-            segments = [ann['segment'] for ann in annotations]
-            getattr(self, split + '_ids').append(video_id)
-            getattr(self, split + '_segments')[video_id] = segments
-            getattr(self, split + '_durations')[video_id] = self.data['database'][video_id]['duration']
-
-class DataSplit(Dataset):
-
-    def __init__(self, video_ids, segments, durations, features, args):
+    def generate_labels(self, args):
         """
-        video_ids - list of video ids in the split
-        segments - dictionary from video_id to list of start and end times of proposals
-        durations - dictionary from video_id to the duration of video in seconds
-        features - the h5py file that contain all the C3D features for
-                   all the videos
-        args.W - the size of the window (the number of RNN steps to use)
-        args.K - The number of proposals per time step
-        args.max_W - the maximum number of windows to pass to back
-        args.num_samples (optional) - contains how many of the videos in the list to use
+        Overwrite based on dataset used
         """
-        self.video_ids = video_ids
-        self.segments = segments
-        self.durations = durations
-        self.features = features
-        self.num_samples = args.num_samples
-        self.W = args.W
-        self.K = args.K
-        self.max_W = args.max_W
-        self.iou_threshold = args.iou_threshold
+        pass
 
     def iou(self, interval, featstamps):
         """
@@ -93,6 +56,70 @@ class DataSplit(Dataset):
         end = max(int(round(end /duration * nfeats)), start+1)
         return start, end
 
+
+class ActivityNet(ProposalDataset):
+    """
+    ActivityNet is responsible for parsing the raw activity net dataset and converting it into a
+    format that DataSplit (defined below) can use. This level of abstraction is used so that
+    DataSplit can be used with other dataset and we would only need to write a class similar
+    to this one.
+    """
+
+    def __init__(self, args):
+        super(self.__class__, self).__init__(args)
+        for split in ['training', 'validation', 'testing']:
+            setattr(self, split + '_ids', [])
+        for video_id in self.data['database']:
+            split = self.data['database'][video_id]['subset']
+            getattr(self, split + '_ids').append(video_id)
+
+    def generate_labels(self, args):
+        """
+        Overwriting parent class to generate action proposal labels
+        """
+        print "| Generating labels for action proposals"
+        label_dataset = h5py.File(args.labels, 'w')
+        bar = progressbar.ProgressBar(maxval=len(self.data['database'].keys())).start()
+        for progress, video_id in enumerate(self.data['database']):
+            features = self.features['v_' + video_id]['c3d_features']
+            nfeats = features.shape[0]
+            duration = self.data['database'][video_id]['duration']
+            annotations = self.data['database'][video_id]['annotations']
+            timestamps = [ann['segment'] for ann in annotations]
+            featstamps = [self.timestamp_to_featstamp(x, nfeats, duration) for x in timestamps]
+
+            labels = np.zeros((nfeats, args.K))
+            for t in range(nfeats):
+                for k in xrange(args.K):
+                    if self.iou([t-k, t+1], featstamps) >= args.iou_threshold:
+                        labels[t, k] = 1
+
+            video_dataset = label_dataset.create_dataset(video_id, (nfeats, args.K), dtype='f')
+            video_dataset[...] = labels
+            bar.update(progress)
+        bar.finish()
+
+
+class DataSplit(Dataset):
+
+    def __init__(self, video_ids, features, labels, args):
+        """
+        video_ids - list of video ids in the split
+        features - the h5py file that contain all the C3D features for all the videos
+        labels - the h5py file that contain all the proposals labels (0 or 1 per time step)
+        args.W - the size of the window (the number of RNN steps to use)
+        args.K - The number of proposals per time step
+        args.max_W - the maximum number of windows to pass to back
+        args.num_samples (optional) - contains how many of the videos in the list to use
+        """
+        self.video_ids = video_ids
+        self.features = features
+        self.labels = labels
+        self.num_samples = args.num_samples
+        self.W = args.W
+        self.K = args.K
+        self.max_W = args.max_W
+
     def collate_fn(self, data):
         """
         This function will be used by the DataLoader to concatenate outputs from
@@ -108,37 +135,28 @@ class DataSplit(Dataset):
         # Now let's get the video_id
         video_id = self.video_ids[index]
         features = self.features['v_' + video_id]['c3d_features']
+        labels = self.labels['v_' + video_id]
         nfeats = features.shape[0]
-        duration = self.durations[video_id]
-        timestamps = self.segments[video_id]
-        featstamps = [self.timestamp_to_featstamp(x, nfeats, duration) for x in timestamps]
         nWindows = max(1, nfeats - self.W + 1)
-        unrolled = np.zeros((nWindows, self.W, features.shape[1]))
-        masks = np.zeros((nWindows, self.W, self.K))
-        labels = np.zeros((nWindows, self.W, self.K))
-        for j, w_start in enumerate(range(nWindows)):
-            w_end = min(w_start + self.W, nfeats)
-
-            for index in range(self.W): # This is the index of the window in window_space
-                masks[w_start, index, :min(self.K, index)] = 1
-                t = index + w_start # This is the actual time of the video index in feature_space
-                if w_start == 0:
-                    for k in xrange(self.K):
-                        if self.iou([t-k, t+1], featstamps) >= self.iou_threshold:
-                            labels[w_start, index, k] = 1
-                else:
-                    labels[w_start, index, :-1] = labels[w_start, index, 1:]
-                    if self.iou([t-self.K, t+1], featstamps) >= self.iou_threshold:
-                        labels[w_start, index, -1] = 1
-            unrolled[j, 0:w_end-w_start, :] = features[w_start:w_end:1, :]
 
         # Let's sample the maximum number of windows we can pass back.
+        sample = range(nWindows)
         if self.max_W < nWindows:
             sample = np.random.choice(self.max_W, nWindows)
-            unrolled = unrolled[sample, :, :]
-            masks = masks[sample, :, :]
-            labels = labels[sample, :, :]
-        return torch.FloatTensor(unrolled), torch.Tensor(masks), torch.Tensor(labels)
+            nWindows = self.max_W
+
+        # Create the outputs
+        feature_windows = np.zeros((nWindows, self.W, features.shape[1]))
+        masks = np.zeros((nWindows, self.W, self.K))
+        label_windows = np.zeros((nWindows, self.W, self.K))
+        for j, w_start in enumerate(sample):
+            w_end = min(w_start + self.W, nfeats)
+            feature_windows[j, 0:w_end-w_start, :] = features[w_start:w_end, :]
+            label_windows[j, 0:w_end-w_start, :] = labels[w_start:w_end, :]
+            for index in range(self.W):
+                masks[w_start, index, :min(self.K, index)] = 1
+
+        return torch.FloatTensor(feature_windows), torch.Tensor(masks), torch.Tensor(label_windows)
 
     def __len__(self):
         if self.num_samples is not None:
