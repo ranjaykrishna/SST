@@ -120,6 +120,11 @@ class DataSplit(Dataset):
         self.K = args.K
         self.max_W = args.max_W
 
+        # Precompute masks
+        self.masks = np.zeros((self.max_W, self.W, self.K))
+        for index in range(self.W):
+            self.masks[:, index, :min(self.K, index)] = 1
+
     def collate_fn(self, data):
         """
         This function will be used by the DataLoader to concatenate outputs from
@@ -135,26 +140,24 @@ class DataSplit(Dataset):
         # Now let's get the video_id
         video_id = self.video_ids[index]
         features = self.features['v_' + video_id]['c3d_features']
-        labels = self.labels['v_' + video_id]
+        labels = self.labels[video_id]
         nfeats = features.shape[0]
         nWindows = max(1, nfeats - self.W + 1)
 
         # Let's sample the maximum number of windows we can pass back.
         sample = range(nWindows)
         if self.max_W < nWindows:
-            sample = np.random.choice(self.max_W, nWindows)
+            sample = np.random.choice(nWindows, self.max_W)
             nWindows = self.max_W
 
         # Create the outputs
         feature_windows = np.zeros((nWindows, self.W, features.shape[1]))
-        masks = np.zeros((nWindows, self.W, self.K))
         label_windows = np.zeros((nWindows, self.W, self.K))
         for j, w_start in enumerate(sample):
             w_end = min(w_start + self.W, nfeats)
             feature_windows[j, 0:w_end-w_start, :] = features[w_start:w_end, :]
             label_windows[j, 0:w_end-w_start, :] = labels[w_start:w_end, :]
-            for index in range(self.W):
-                masks[w_start, index, :min(self.K, index)] = 1
+        masks = self.masks[:nWindows, :, :]
 
         return torch.FloatTensor(feature_windows), torch.Tensor(masks), torch.Tensor(label_windows)
 
