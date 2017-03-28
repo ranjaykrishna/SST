@@ -124,6 +124,7 @@ class DataSplit(Dataset):
         self.masks = np.zeros((self.max_W, self.W, self.K))
         for index in range(self.W):
             self.masks[:, index, :min(self.K, index)] = 1
+        self.masks = torch.FloatTensor(self.masks)
 
     def collate_fn(self, data):
         """
@@ -151,15 +152,17 @@ class DataSplit(Dataset):
             nWindows = self.max_W
 
         # Create the outputs
+        masks = self.masks[:nWindows, :, :].clone()
         feature_windows = np.zeros((nWindows, self.W, features.shape[1]))
         label_windows = np.zeros((nWindows, self.W, self.K))
         for j, w_start in enumerate(sample):
             w_end = min(w_start + self.W, nfeats)
             feature_windows[j, 0:w_end-w_start, :] = features[w_start:w_end, :]
             label_windows[j, 0:w_end-w_start, :] = labels[w_start:w_end, :]
-        masks = self.masks[:nWindows, :, :]
+            if w_start + self.W > nfeats:
+                masks[j, w_start+self.W-nfeats:, :] = 0
 
-        return torch.FloatTensor(feature_windows), torch.Tensor(masks), torch.Tensor(label_windows)
+        return torch.FloatTensor(feature_windows), masks, torch.Tensor(label_windows)
 
     def __len__(self):
         if self.num_samples is not None:
