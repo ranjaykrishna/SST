@@ -1,4 +1,4 @@
-from data import DataSplit
+from data import TrainSplit, EvaluateSplit
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
@@ -35,8 +35,6 @@ parser.add_argument('--K', type=int, default=64,
                     help='Number of proposals')
 parser.add_argument('--max-W', type=int, default=256,
                     help='maximum number of windows to return per video')
-parser.add_argument('--iou-threshold', type=float, default=0.5,
-                    help='threshold above which we say something is positive')
 
 # Model options
 parser.add_argument('--rnn-type', type=str, default='GRU',
@@ -79,6 +77,14 @@ parser.add_argument('--nthreads', type=int, default=1,
                     help='number of worker threas used to load data')
 parser.add_argument('--resume', dest='resume', action='store_true',
                     help='reload the model')
+
+# Evaluate options
+parser.add_argument('--num-vids-eval', type=int, default=500,
+                    help='Number of videos to evaluate at each pass')
+parser.add_argument('--iou-threshold', type=float, default=0.5,
+                    help='threshold above which we say something is positive')
+parser.add_argument('--num-proposals', type=int, default=None,
+                    help='number of top proposals to evaluate')
 args = parser.parse_args()
 
 # Ensure that the kernel for RNN is greated than the number of proposals
@@ -119,8 +125,8 @@ with open(os.path.join(args.save, 'args.json'), 'w') as f:
 
 print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data, args.dataset)(args)
-train_dataset = DataSplit(dataset.training_ids, dataset.features, dataset.labels, args)
-val_dataset = DataSplit(dataset.validation_ids, dataset.features, dataset.labels, args)
+train_dataset = TrainSplit(dataset.training_ids, dataset, args)
+val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
 print "| Dataset created"
 train_loader = DataLoader(train_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=train_dataset.collate_fn)
 val_loader = DataLoader(val_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
@@ -151,41 +157,26 @@ if args.cuda:
 # Training code
 ###############################################################################
 
-def calculate_stats(proposals, masks, labels, args):
-    eps = 1e-8
-    labels = labels.view(-1)
-    masks = masks.view(-1)
-
-    proposal = proposals.data
-    proposal[proposal < args.iou_threshold] = 0
-    proposal[proposal >= args.iou_threshold] = 1
-    tp = torch.sum(proposal.mul(labels).mul(masks))
-    fp = torch.sum(proposal.mul(1-labels).mul(masks))
-    fn = torch.sum(labels.mul(1-proposal).mul(masks))
-    total = torch.sum(masks)
-    assert(tp+fn == labels.mul(masks).sum())
-    if args.debug:
-        print ">> # of true pos: %f, # of false pos: %f, # of false neg: %f" % (tp, fp, fn)
-    return float(tp)/(total+eps), float(tp)/(tp+fp+eps), float(tp)/(tp+fn+eps)
+def calculate_stats(proposals, gt_times, duration, args):
+    # TODO
+    return None
 
 
 def evaluate(data_loader, maximum=None):
-    total = len(data_loader)*args.batch_size
+    total = len(data_loader)
     if maximum is not None:
         total = min(total, maximum)
     accs = np.zeros(total)
     recall = np.zeros(total)
     precision = np.zeros(total)
-    for batch_idx, (features, masks, labels) in enumerate(data_loader):
+    for batch_idx, (features, gt_times, duration) in enumerate(data_loader):
         if maximum is not None and batch_idx >= maximum:
             break
         if args.cuda:
             features = features.cuda()
-            masks = masks.cuda()
-            labels = labels.cuda()
         features = Variable(features)
         proposals = model(features)
-        accs[batch_idx], precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, masks, labels, args)
+        accs[batch_idx], precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
     return np.mean(accs), np.mean(precision), np.mean(recall)
 
 def train(epoch):
@@ -208,7 +199,7 @@ def train(epoch):
 
         # Debugging training samples
         if args.debug:
-            acc, precision, recall = evaluate(train_loader)
+            acc, precision, recall = evaluate(train_loader, maximum=args.num_eval_vids)
             log_entry = ('| accuracy: {:2.4f}\% | precision: {:2.4f}\% ' \
                 '| recall: {:2.4f}\%'.format(acc, precision, recall))
             print log_entry
@@ -232,7 +223,7 @@ optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, we
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
     train(epoch)
-    acc, precision, recall = evaluate(val_loader)
+    acc, precision, recall = evaluate(val_loader, maximum=args.num_eval_vids)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val accuracy: {:2.2f}\% | val precision: {:2.2f}\% ' \
             '| val recall: {:2.2f}\%'.format(
@@ -247,7 +238,7 @@ for epoch in range(1, args.epochs+1):
 
 # Run on test data and save the model.
 print "| Testing model on test set"
-test_dataset = DataSplit(dataset.testing_ids, dataset.features, dataset.labels, args)
+test_dataset = EvaluateSplit(dataset.testing_ids, dataset, args)
 test_loader = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
 test_acc, test_precision, test_recall = evaluate(test_loader)
 print('=' * 89)

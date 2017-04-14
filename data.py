@@ -67,11 +67,15 @@ class ActivityNet(ProposalDataset):
 
     def __init__(self, args):
         super(self.__class__, self).__init__(args)
+        self.durations = {}
+        self.gt_times = {}
         for split in ['training', 'validation', 'testing']:
             setattr(self, split + '_ids', [])
         for video_id in self.data['database']:
             split = self.data['database'][video_id]['subset']
             getattr(self, split + '_ids').append(video_id)
+            self.durations[video_id] = self.data['database'][video_id]['duration']
+            self.gt_times[video_id] = [ann['segment'] for ann in self.data['database'][video_id]['annotations']]
 
     def generate_labels(self, args):
         """
@@ -102,7 +106,7 @@ class ActivityNet(ProposalDataset):
 
 class DataSplit(Dataset):
 
-    def __init__(self, video_ids, features, labels, args):
+    def __init__(self, video_ids, dataset, args):
         """
         video_ids - list of video ids in the split
         features - the h5py file that contain all the C3D features for all the videos
@@ -113,8 +117,10 @@ class DataSplit(Dataset):
         args.num_samples (optional) - contains how many of the videos in the list to use
         """
         self.video_ids = video_ids
-        self.features = features
-        self.labels = labels
+        self.features = dataset.features
+        self.labels = dataset.labels
+        self.durations = dataset.durations
+        self.gt_times = dataset.gt_times
         self.num_samples = args.num_samples
         self.W = args.W
         self.K = args.K
@@ -125,6 +131,22 @@ class DataSplit(Dataset):
         for index in range(self.W):
             self.masks[:, index, :min(self.K, index)] = 1
         self.masks = torch.FloatTensor(self.masks)
+
+    def __getitem__(self, index):
+        """
+        To be overwritten by TrainSplit versus EvaluateSplit defined below.
+        """
+        pass
+
+    def __len__(self):
+        if self.num_samples is not None:
+            return self.num_samples
+        return len(self.video_ids)
+
+class TrainSplit(DataSplit):
+
+    def __init__(self, video_ids, dataset, args):
+        super(self.__class__, self).__init__(video_ids, dataset, args)
 
     def collate_fn(self, data):
         """
@@ -152,19 +174,40 @@ class DataSplit(Dataset):
             nWindows = self.max_W
 
         # Create the outputs
-        masks = self.masks[:nWindows, :, :].clone()
+        masks = self.masks[:nWindows, :, :]
         feature_windows = np.zeros((nWindows, self.W, features.shape[1]))
         label_windows = np.zeros((nWindows, self.W, self.K))
         for j, w_start in enumerate(sample):
             w_end = min(w_start + self.W, nfeats)
             feature_windows[j, 0:w_end-w_start, :] = features[w_start:w_end, :]
             label_windows[j, 0:w_end-w_start, :] = labels[w_start:w_end, :]
-            if w_start + self.W > nfeats:
-                masks[j, w_start+self.W-nfeats:, :] = 0
 
         return torch.FloatTensor(feature_windows), masks, torch.Tensor(label_windows)
 
-    def __len__(self):
-        if self.num_samples is not None:
-            return self.num_samples
-        return len(self.video_ids)
+class EvaluateSplit(DataSplit):
+
+    def __init__(self, video_ids, dataset, args):
+        super(self.__class__, self).__init__(video_ids, dataset, args)
+
+    def collate_fn(self, data):
+        """
+        This function will be used by the DataLoader to concatenate outputs from
+        multiple called to __get__item(). It will concatanate the windows along
+        the first dimension
+        """
+        features = [d[0] for d in data]
+        gt_times = [d[1] for d in data]
+        durations = [d[2] for d in data]
+        assert(len(features) == 1)
+        assert(len(gt_times) == 1)
+        assert(len(durations) == 1)
+        return torch.cat(features, 0), gt_times[0], durations[0]
+
+    def __getitem__(self, index):
+        # Let's get the video_id and the features and labels
+        video_id = self.video_ids[index]
+        features = self.features['v_' + video_id]['c3d_features']
+        duration = self.durations[video_id]
+        gt_times = self.gt_times[video_id]
+
+        return torch.FloatTensor(features), gt_times, duration
