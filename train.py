@@ -206,15 +206,13 @@ def calculate_stats(proposals, gt_times, duration, args):
             gt_detected[k] = 1
     tp = (ious > args.iou_threshold).sum()
     fn = len(gt_detected) - gt_detected.sum()
-    # todo: remove acc
-    return -1., float(tp) / (len(timestamps) + eps), float(tp) / (tp + fn + eps)
+    return float(tp) / (len(timestamps) + eps), float(tp) / (tp + fn + eps)
 
 
 def evaluate(data_loader, maximum=None):
     total = len(data_loader)
     if maximum is not None:
         total = min(total, maximum)
-    accs = np.zeros(total)
     recall = np.zeros(total)
     precision = np.zeros(total)
     for batch_idx, (features, gt_times, duration) in enumerate(data_loader):
@@ -224,8 +222,8 @@ def evaluate(data_loader, maximum=None):
             features = features.cuda()
         features = Variable(features)
         proposals = model(features)
-        accs[batch_idx], precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
-    return np.mean(accs), np.mean(precision), np.mean(recall)
+        precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
+    return np.mean(precision), np.mean(recall)
 
 
 def train(epoch):
@@ -248,9 +246,9 @@ def train(epoch):
 
         # Debugging training samples
         if args.debug:
-            acc, precision, recall = evaluate(train_loader, maximum=args.num_vids_eval)
-            log_entry = ('| accuracy: {:2.4f}\% | precision: {:2.4f}\% ' \
-                '| recall: {:2.4f}\%'.format(acc, precision, recall))
+            precision, recall = evaluate(train_loader, maximum=args.num_vids_eval)
+            log_entry = ('| precision: {:2.4f}\% ' \
+                '| recall: {:2.4f}\%'.format(precision, recall))
             print log_entry
 
         # Print out training loss every interval in the batch
@@ -272,11 +270,11 @@ optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, we
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
     train(epoch)
-    acc, precision, recall = evaluate(val_loader, maximum=args.num_vids_eval)
+    precision, recall = evaluate(val_loader, maximum=args.num_vids_eval)
     print('-' * 89)
-    log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val accuracy: {:2.2f}\% | val precision: {:2.2f}\% ' \
+    log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val precision: {:2.2f}\% ' \
             '| val recall: {:2.2f}\%'.format(
-        epoch, (time.time() - epoch_start_time), acc, precision, recall))
+        epoch, (time.time() - epoch_start_time), precision, recall))
     print log_entry
     print('-' * 89)
     with open(os.path.join(args.save, 'val.log'), 'a') as f:
@@ -289,10 +287,10 @@ for epoch in range(1, args.epochs+1):
 print "| Testing model on test set"
 test_dataset = EvaluateSplit(dataset.testing_ids, dataset, args)
 test_loader = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
-test_acc, test_precision, test_recall = evaluate(test_loader)
+test_precision, test_recall = evaluate(test_loader)
 print('=' * 89)
-print('| End of training | test acc {:2.2f}\% | test precision {:2.2f}\% | test recall {:2.2f}\%'.format(
-    test_acc, test_precision, test_recall))
+print('| End of training | test precision {:2.2f}\% | test recall {:2.2f}\%'.format(
+    test_precision, test_recall))
 print('=' * 89)
 if args.save != '':
     torch.save(model, os.path.join(args.save, 'model.pth'))
