@@ -39,8 +39,7 @@ class ProposalDataset(object):
         start_i, end_i = interval[0], interval[1]
         output = 0.0
         gt_index = -1
-        for i, timestamp in enumerate(featstamps):
-            start, end = timestamp
+        for i, (start, end) in enumerate(featstamps):
             intersection = max(0, min(end, end_i) - max(start, start_i))
             union = min(max(end, end_i) - min(start, start_i), end-start + end_i-start_i)
             overlap = float(intersection) / (union + 1e-8)

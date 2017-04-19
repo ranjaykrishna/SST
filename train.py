@@ -157,9 +157,57 @@ if args.cuda:
 # Training code
 ###############################################################################
 
+
+def iou(interval, featstamps, return_index=False):
+    start_i, end_i = interval[0], interval[1]
+    output = 0.0
+    gt_index = -1
+    for i, (start, end) in enumerate(featstamps):
+        intersection = max(0, min(end, end_i) - max(start, start_i))
+        union = min(max(end, end_i) - min(start, start_i), end - start + end_i - start_i)
+        overlap = float(intersection) / (union + 1e-8)
+        if overlap >= output:
+            output = overlap
+            gt_index = i
+    if return_index:
+        return output, gt_index
+    return output
+
+
+def proposals_to_timestamps(proposals, duration, num_proposals):
+    # if num_proposals is None, extract all timestamps that have a non zero score
+    # todo: handle possible index error if num_proposals > nb_proposals
+    if num_proposals:
+        score_threshold = np.sort(proposals.flatten())[-num_proposals]
+        proposals = proposals >= score_threshold
+    step_length = duration / proposals.shape[0]
+    timestamps = []
+    for time_step in np.flatnonzero(proposals.sum(axis=1)):
+        p = proposals[time_step]
+        end = time_step * step_length
+        for k in np.flatnonzero(p):
+            start = max(0, time_step - k - 1) * step_length
+            timestamps.append((start, end))
+    return timestamps
+
+
 def calculate_stats(proposals, gt_times, duration, args):
-    # TODO
-    return None
+    eps = 1e-8
+    # todo: check if .value is needed
+    # todo: define iou and proposals_to_timestamps as ProposalDataset methods
+    # timestamps = proposals.proposals_to_timestamps(duration, args.num_proposals)
+    timestamps = proposals_to_timestamps(proposals.value, duration, args.num_proposals)
+    ious = np.zeros(len(timestamps))
+    gt_detected = np.zeros(len(gt_times))
+    for i, timestamp in enumerate(timestamps):
+        # ious[i], k = proposals.iou(timestamp, gt_times, return_index=True)
+        ious[i], k = iou(timestamp, gt_times, return_index=True)
+        if ious[i] > args.iou_threshold:
+            gt_detected[k] = 1
+    tp = (ious > args.iou_threshold).sum()
+    fn = len(gt_detected) - gt_detected.sum()
+    # todo: remove acc
+    return -1., float(tp) / (len(timestamps) + eps), float(tp) / (tp + fn + eps)
 
 
 def evaluate(data_loader, maximum=None):
@@ -178,6 +226,7 @@ def evaluate(data_loader, maximum=None):
         proposals = model(features)
         accs[batch_idx], precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
     return np.mean(accs), np.mean(precision), np.mean(recall)
+
 
 def train(epoch):
     total_loss = []
@@ -199,7 +248,7 @@ def train(epoch):
 
         # Debugging training samples
         if args.debug:
-            acc, precision, recall = evaluate(train_loader, maximum=args.num_eval_vids)
+            acc, precision, recall = evaluate(train_loader, maximum=args.num_vids_eval)
             log_entry = ('| accuracy: {:2.4f}\% | precision: {:2.4f}\% ' \
                 '| recall: {:2.4f}\%'.format(acc, precision, recall))
             print log_entry
@@ -223,7 +272,7 @@ optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, we
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
     train(epoch)
-    acc, precision, recall = evaluate(val_loader, maximum=args.num_eval_vids)
+    acc, precision, recall = evaluate(val_loader, maximum=args.num_vids_eval)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val accuracy: {:2.2f}\% | val precision: {:2.2f}\% ' \
             '| val recall: {:2.2f}\%'.format(
