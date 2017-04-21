@@ -210,6 +210,7 @@ def calculate_stats(proposals, gt_times, duration, args):
 
 
 def evaluate(data_loader, maximum=None):
+    model.eval()
     total = len(data_loader)
     if maximum is not None:
         total = min(total, maximum)
@@ -227,6 +228,7 @@ def evaluate(data_loader, maximum=None):
 
 
 def train(epoch):
+    model.train()
     total_loss = []
     model.train()
     start_time = time.time()

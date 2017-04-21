@@ -31,6 +31,9 @@ class SST(nn.Module):
     def eval(self):
         self.rnn.dropout = 0
 
+    def train(self):
+        self.rnn.dropout = self.rnn_dropout
+
     def forward(self, features):
         N, T, _ = features.size()
 
