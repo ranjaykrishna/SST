@@ -32,18 +32,22 @@ class ProposalDataset(object):
         """
         pass
 
-    def iou(self, interval, featstamps):
+    def iou(self, interval, featstamps, return_index=False):
         """
         Measures temporal IoU
         """
         start_i, end_i = interval[0], interval[1]
         output = 0.0
-        for start, end in featstamps:
+        gt_index = -1
+        for i, (start, end) in enumerate(featstamps):
             intersection = max(0, min(end, end_i) - max(start, start_i))
             union = min(max(end, end_i) - min(start, start_i), end-start + end_i-start_i)
             overlap = float(intersection) / (union + 1e-8)
             if overlap >= output:
                 output = overlap
+                gt_index = i
+        if return_index:
+            return output, gt_index
         return output
 
     def timestamp_to_featstamp(self, timestamp, nfeats, duration):
