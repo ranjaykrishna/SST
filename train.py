@@ -181,23 +181,24 @@ def proposals_to_timestamps(proposals, duration, num_proposals):
     if num_proposals:
         score_threshold = np.sort(proposals.flatten())[-num_proposals]
         proposals = proposals >= score_threshold
-    step_length = duration / proposals.shape[0]
+    step_length = duration / proposals.size(0)
     timestamps = []
-    for time_step in np.flatnonzero(proposals.sum(axis=1)):
-        p = proposals[time_step]
+    for N_T_K in torch.nonzero(torch.sum(proposals, 2)):
+        print N_T_K.size()
+        time_step = N_T_K[1]
+        p = proposals[0, time_step, :]
         end = time_step * step_length
-        for k in np.flatnonzero(p):
-            start = max(0, time_step - k - 1) * step_length
+        for k in torch.nonzero(p):
+            start = max(0, N_T_K - k - 1) * step_length
             timestamps.append((start, end))
     return timestamps
 
 
 def calculate_stats(proposals, gt_times, duration, args):
     eps = 1e-8
-    # todo: check if .value is needed
     # todo: define iou and proposals_to_timestamps as ProposalDataset methods
     # timestamps = proposals.proposals_to_timestamps(duration, args.num_proposals)
-    timestamps = proposals_to_timestamps(proposals.value, duration, args.num_proposals)
+    timestamps = proposals_to_timestamps(proposals.data, duration, args.num_proposals)
     ious = np.zeros(len(timestamps))
     gt_detected = np.zeros(len(gt_times))
     for i, timestamp in enumerate(timestamps):
@@ -218,7 +219,6 @@ def evaluate(data_loader, maximum=None):
     recall = np.zeros(total)
     precision = np.zeros(total)
     for batch_idx, (features, gt_times, duration) in enumerate(data_loader):
-        print features.size()
         if maximum is not None and batch_idx >= maximum:
             break
         if args.cuda:

@@ -41,7 +41,7 @@ class SST(nn.Module):
         rnn_output = rnn_output.contiguous()
         rnn_output = rnn_output.view(rnn_output.size(0)*rnn_output.size(1), rnn_output.size(2))
         outputs = torch.sigmoid(self.scores(rnn_output))
-        return outputs.view(-1)
+        return outputs.view(N, T, self.K)
 
     def slow_compute_loss(self, outputs, masks, labels):
         """
@@ -68,7 +68,7 @@ class SST(nn.Module):
         """
         labels = torch.autograd.Variable(labels.view(-1))
         masks = torch.autograd.Variable(masks.view(-1))
-        outputs = outputs.mul(masks)
+        outputs = outputs.view(-1).mul(masks)
         labels = labels.mul(masks)
 
         w1 = labels.sum()/labels.nelement()
@@ -85,6 +85,7 @@ class SST(nn.Module):
         """
         labels = labels.view(-1)
         masks = masks.view(-1)
+        outputs = outputs.view(-1)
 
         # Generate the weights
         ones = torch.sum(labels)
