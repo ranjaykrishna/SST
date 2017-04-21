@@ -100,7 +100,7 @@ class SST(nn.Module):
         all_outputs = torch.cat((log_outputs.view(-1, 1), neg_log_outputs.view(-1, 1)), 1)
 
         all_values = all_outputs.mul(torch.autograd.Variable(weights))
-        all_labels = torch.autograd.Variable(torch.cat((labels, 1.0-labels), 1))
-        all_masks = torch.autograd.Variable(masks.view(-1, 1).expand(masks.size(0), 2))
+        all_labels = torch.autograd.Variable(torch.cat((labels.view(-1, 1), (1.0-labels).view(-1, 1)), 1))
+        all_masks = torch.autograd.Variable(torch.cat((masks.view(-1, 1), masks.view(-1, 1)), 1))
         loss = -torch.sum(all_values.mul(all_labels).mul(all_masks))/outputs.size(0)
         return loss
