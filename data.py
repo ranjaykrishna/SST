@@ -199,13 +199,10 @@ class EvaluateSplit(DataSplit):
         multiple called to __get__item(). It will concatanate the windows along
         the first dimension
         """
-        features = [d[0] for d in data]
-        gt_times = [d[1] for d in data]
-        durations = [d[2] for d in data]
-        assert(len(features) == 1)
-        assert(len(gt_times) == 1)
-        assert(len(durations) == 1)
-        return torch.cat(features, 0), gt_times[0], durations[0]
+        features = data[0][0]
+        gt_times = data[0][1]
+        durations = data[0][2]
+        return features.view(1, features.size(0), features.size(1)), gt_times, durations
 
     def __getitem__(self, index):
         # Let's get the video_id and the features and labels

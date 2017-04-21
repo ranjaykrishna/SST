@@ -129,8 +129,9 @@ train_dataset = TrainSplit(dataset.training_ids, dataset, args)
 val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
 print "| Dataset created"
 train_loader = DataLoader(train_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=train_dataset.collate_fn)
-val_loader = DataLoader(val_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
-print "| Data Loaded: # training data: %d, # val data: %d" % (len(train_loader)*args.batch_size, len(val_loader)*args.batch_size)
+train_evaluator = DataLoader(train_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
+val_evaluator = DataLoader(val_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
+print "| Data Loaded: # training data: %d, # val data: %d" % (len(train_loader)*args.batch_size, len(val_evaluator))
 
 ###############################################################################
 # Build the model
@@ -217,6 +218,7 @@ def evaluate(data_loader, maximum=None):
     recall = np.zeros(total)
     precision = np.zeros(total)
     for batch_idx, (features, gt_times, duration) in enumerate(data_loader):
+        print features.size()
         if maximum is not None and batch_idx >= maximum:
             break
         if args.cuda:
@@ -248,7 +250,7 @@ def train(epoch):
 
         # Debugging training samples
         if args.debug:
-            precision, recall = evaluate(train_loader, maximum=args.num_vids_eval)
+            precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
             log_entry = ('| precision: {:2.4f}\% ' \
                 '| recall: {:2.4f}\%'.format(precision, recall))
             print log_entry
@@ -272,7 +274,7 @@ optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, we
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
     train(epoch)
-    precision, recall = evaluate(val_loader, maximum=args.num_vids_eval)
+    precision, recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val precision: {:2.2f}\% ' \
             '| val recall: {:2.2f}\%'.format(
@@ -288,8 +290,8 @@ for epoch in range(1, args.epochs+1):
 # Run on test data and save the model.
 print "| Testing model on test set"
 test_dataset = EvaluateSplit(dataset.testing_ids, dataset, args)
-test_loader = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
-test_precision, test_recall = evaluate(test_loader)
+test_evaluator = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
+test_precision, test_recall = evaluate(test_evaluator)
 print('=' * 89)
 print('| End of training | test precision {:2.2f}\% | test recall {:2.2f}\%'.format(
     test_precision, test_recall))
