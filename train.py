@@ -127,9 +127,10 @@ print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data, args.dataset)(args)
 train_dataset = TrainSplit(dataset.training_ids, dataset, args)
 val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
+train_val_dataset = EvaluateSplit(dataset.training_ids, dataset, args)
 print "| Dataset created"
 train_loader = DataLoader(train_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=train_dataset.collate_fn)
-train_evaluator = DataLoader(train_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
+train_evaluator = DataLoader(train_val_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
 val_evaluator = DataLoader(val_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
 print "| Data Loaded: # training data: %d, # val data: %d" % (len(train_loader)*args.batch_size, len(val_evaluator))
 
