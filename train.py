@@ -177,21 +177,23 @@ def iou(interval, featstamps, return_index=False):
 
 
 def proposals_to_timestamps(proposals, duration, num_proposals):
-    # if num_proposals is None, extract all timestamps that have a non zero score
-    # todo: handle possible index error if num_proposals > nb_proposals
+    # if num_proposals is None, extract all possible timestamps proposals
+    _, nb_steps, K = proposals.size()
     if num_proposals:
-        score_threshold = np.sort(proposals.flatten())[-num_proposals]
+        # keep only top num_proposals proposals
+        sort, _ = proposals.view(nb_steps * K).sort()
+        score_threshold = sort[-num_proposals]
         proposals = proposals >= score_threshold
-    step_length = duration / proposals.size(0)
+    step_length = duration / nb_steps
     timestamps = []
-    for N_T_K in torch.nonzero(torch.sum(proposals, 2)):
-        print N_T_K.size()
-        time_step = N_T_K[1]
-        p = proposals[0, time_step, :]
-        end = time_step * step_length
-        for k in torch.nonzero(p):
-            start = max(0, N_T_K - k - 1) * step_length
-            timestamps.append((start, end))
+    for time_step in np.arange(nb_steps):
+        p = proposals[0, time_step]
+        if p.sum() != 0:
+            end = time_step * step_length
+            for k in np.arange(K):
+                if p[k] != 0:
+                    start = max(0, time_step - k - 1) * step_length
+                    timestamps.append((start, end))
     return timestamps
 
 
