@@ -61,6 +61,20 @@ class ProposalDataset(object):
         return start, end
 
 
+    def compute_proposals_stats(self, prop_captured):
+        """
+        Function to compute the proportion of proposals captured during labels generation.
+        :param prop_captured: array of length nb_videos
+        :return:
+        """
+        nb_videos = len(prop_captured)
+        proportion = np.mean(prop_captured[prop_captured != -1])
+        nb_no_proposals = (prop_captured == -1).sum()
+        print "Number of videos in the dataset: {}".format(nb_videos)
+        print "Proportion of videos with no proposals: {}".format(1.*nb_no_proposals/nb_videos)
+        print "Proportion of action proposals captured during labels creation: {}".format(proportion)
+
+
 class ActivityNet(ProposalDataset):
     """
     ActivityNet is responsible for parsing the raw activity net dataset and converting it into a
@@ -81,6 +95,7 @@ class ActivityNet(ProposalDataset):
             self.durations[video_id] = self.data['database'][video_id]['duration']
             self.gt_times[video_id] = [ann['segment'] for ann in self.data['database'][video_id]['annotations']]
 
+
     def generate_labels(self, args):
         """
         Overwriting parent class to generate action proposal labels
@@ -88,6 +103,7 @@ class ActivityNet(ProposalDataset):
         print "| Generating labels for action proposals"
         label_dataset = h5py.File(args.labels, 'w')
         bar = progressbar.ProgressBar(maxval=len(self.data['database'].keys())).start()
+        prop_captured = []
         for progress, video_id in enumerate(self.data['database']):
             features = self.features['v_' + video_id]['c3d_features']
             nfeats = features.shape[0]
@@ -95,19 +111,26 @@ class ActivityNet(ProposalDataset):
             annotations = self.data['database'][video_id]['annotations']
             timestamps = [ann['segment'] for ann in annotations]
             featstamps = [self.timestamp_to_featstamp(x, nfeats, duration) for x in timestamps]
-
             labels = np.zeros((nfeats, args.K))
+            gt_captured = []
             for t in range(nfeats):
                 for k in xrange(args.K):
-                    if self.iou([t-k, t+1], featstamps) >= args.iou_threshold:
+                    iou, gt_index = self.iou([t-k, t+1], featstamps, return_index=True)
+                    if iou >= args.iou_threshold:
                         labels[t, k] = 1
-
+                        gt_captured += [gt_index]
+            if len(timestamps) > 0:
+	    	prop_captured += [1.*len(np.unique(gt_captured))/len(timestamps)]
+	    else:
+		# -1 for videos with no activity proposals 
+		prop_captured += [-1]
             video_dataset = label_dataset.create_dataset(video_id, (nfeats, args.K), dtype='f')
             video_dataset[...] = labels
             bar.update(progress)
-        bar.finish()
+        self.compute_proposals_stats(np.array(prop_captured))
+	bar.finish()
 
-
+   
 class DataSplit(Dataset):
 
     def __init__(self, video_ids, dataset, args):
