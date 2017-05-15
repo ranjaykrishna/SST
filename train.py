@@ -154,6 +154,13 @@ else:
 
 if args.cuda:
     model.cuda()
+    # TODO: compute these with training data 
+    w0 = torch.cuda.FloatTensor([0.9])
+    w1 = torch.cuda.FloatTensor([1.-0.9])
+
+if not args.cuda:
+    w0 = torch.FloatTensor([0.9])
+    w1 = torch.FloatTensor([1.-0.9])
 
 ###############################################################################
 # Training code
@@ -245,7 +252,7 @@ def train(epoch):
         features = Variable(features)
         optimizer.zero_grad()
         proposals = model(features)
-        loss = model.compute_loss(proposals, masks, labels)
+        loss = model.compute_loss_with_BCE(proposals, masks, labels, w0, w1)
         loss.backward()
         optimizer.step()
 

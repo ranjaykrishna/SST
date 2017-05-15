@@ -62,7 +62,7 @@ class SST(nn.Module):
             print n, loss
         return loss
 
-    def compute_loss_with_BCE(self, outputs, masks, labels):
+    def compute_loss_with_BCE(self, outputs, masks, labels, w0=None, w1=None):
         """
         Uses weighted BCE to calculate loss
         """
@@ -70,9 +70,9 @@ class SST(nn.Module):
         masks = torch.autograd.Variable(masks.view(-1))
         outputs = outputs.view(-1).mul(masks)
         labels = labels.mul(masks)
-
-        w1 = labels.sum()/labels.nelement()
-        w0 = 1.0 - w1
+        if not w0:
+            w1 = labels.sum()/labels.nelement()
+            w0 = 1.0 - w1
         weights = labels.mul(w0.expand(labels.size(0))) + (1-labels).mul(w1.expand(labels.size(0)))
 
         criterion = torch.nn.BCELoss(weight=weights.data)
