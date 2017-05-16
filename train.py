@@ -286,8 +286,9 @@ for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
     train(epoch, w0)
     # overfit training data
-    # precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
-    precision, recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
+    precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
+    #todo: fix IndexError bug with val and test evaluator!
+    #precision, recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val precision: {:2.2f}\% ' \
             '| val recall: {:2.2f}\%'.format(
@@ -301,13 +302,13 @@ for epoch in range(1, args.epochs+1):
         torch.save(model, os.path.join(args.save, 'model_' + str(epoch) + '.pth'))
 
 # Run on test data and save the model.
-print "| Testing model on test set"
-test_dataset = EvaluateSplit(dataset.testing_ids, dataset, args)
-test_evaluator = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
-test_precision, test_recall = evaluate(test_evaluator)
-print('=' * 89)
-print('| End of training | test precision {:2.2f}\% | test recall {:2.2f}\%'.format(
-    test_precision, test_recall))
-print('=' * 89)
-if args.save != '':
-    torch.save(model, os.path.join(args.save, 'model.pth'))
+#print "| Testing model on test set"
+#test_dataset = EvaluateSplit(dataset.testing_ids, dataset, args)
+#test_evaluator = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
+#test_precision, test_recall = evaluate(test_evaluator)
+#print('=' * 89)
+#print('| End of training | test precision {:2.2f}\% | test recall {:2.2f}\%'.format(
+#    test_precision, test_recall))
+#print('=' * 89)
+#if args.save != '':
+#    torch.save(model, os.path.join(args.save, 'model.pth'))

@@ -105,6 +105,7 @@ class ActivityNet(ProposalDataset):
         prop_captured = []
         prop_pos_examples = []
 	video_ids = self.data['database'].keys()
+	split_ids = {'training':[], 'validation':[], 'testing':[]}
         for progress, video_id in enumerate(video_ids):
             features = self.features['v_' + video_id]['c3d_features']
             nfeats = features.shape[0]
@@ -127,6 +128,8 @@ class ActivityNet(ProposalDataset):
 		    # no proposals captured in this video since all have a length above threshold
                     prop_captured += [0.]
                 continue 
+            # we keep track of the videos kept to update ids 
+            split_ids[self.data['database'][video_id]['subset']] += [video_id]
 	    labels = np.zeros((nfeats, args.K))
             gt_captured = []
             for t in range(nfeats):
@@ -142,6 +145,10 @@ class ActivityNet(ProposalDataset):
             video_dataset[...] = labels
             bar.update(progress)
         self.w1 = np.mean(prop_pos_examples) # this will be used to compute the loss 
+	# todo:clean this 
+	self.training_ids = split_ids['training']
+	self.validation_ids = split_ids['validation']
+	self.testing_ids = split_ids['testing']
 	self.compute_proposals_stats(np.array(prop_captured))
         bar.finish()
 
@@ -261,8 +268,8 @@ class EvaluateSplit(DataSplit):
 
     def __getitem__(self, index):
         # Let's get the video_id and the features and labels
-        video_id = self.video_ids[index]
-        features = self.features['v_' + video_id]['c3d_features']
+  	video_id = self.video_ids[index]
+	features = self.features['v_' + video_id]['c3d_features']
         duration = self.durations[video_id]
         gt_times = self.gt_times[video_id]
 
