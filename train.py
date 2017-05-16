@@ -125,6 +125,8 @@ with open(os.path.join(args.save, 'args.json'), 'w') as f:
 
 print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data, args.dataset)(args)
+# weight to use in CE loss
+w0 = 1. - dataset.w1
 train_dataset = TrainSplit(dataset.training_ids, dataset, args)
 val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
 train_val_dataset = EvaluateSplit(dataset.training_ids, dataset, args)
@@ -154,13 +156,6 @@ else:
 
 if args.cuda:
     model.cuda()
-    # TODO: compute these with training data
-    w0 = torch.cuda.FloatTensor([0.9])
-    w1 = torch.cuda.FloatTensor([1.-0.9])
-
-if not args.cuda:
-    w0 = torch.FloatTensor([0.9])
-    w1 = torch.FloatTensor([1.-0.9])
 
 ###############################################################################
 # Training code
@@ -235,11 +230,12 @@ def evaluate(data_loader, maximum=None):
             features = features.cuda()
         features = Variable(features)
         proposals = model(features)
+        # print proposals[0]
         precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
     return np.mean(precision), np.mean(recall)
 
 
-def train(epoch):
+def train(epoch, w0):
     model.train()
     total_loss = []
     model.train()
@@ -252,12 +248,14 @@ def train(epoch):
         features = Variable(features)
         optimizer.zero_grad()
         proposals = model(features)
-        # TODO: compute this with training data
-        w0 = 0.9
         loss = model.compute_loss_with_BCE(proposals, masks, labels, w0)
         loss.backward()
         optimizer.step()
-
+        # ratio of weights updates to debug 
+        #for group in optimizer.param_groups:
+            #for p in group['params']:
+		#print "ratio of weights update "
+                #print p.grad.div(p).mean().data
         total_loss.append(loss.data[0])
 
         # Debugging training samples
@@ -283,9 +281,12 @@ def train(epoch):
 
 # Loop over epochs.
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+print "training with w0 = {}".format(w0)
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
-    train(epoch)
+    train(epoch, w0)
+    # overfit training data
+    # precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
     precision, recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val precision: {:2.2f}\% ' \
