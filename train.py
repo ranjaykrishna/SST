@@ -213,7 +213,8 @@ def calculate_stats(proposals, gt_times, duration, args):
             gt_detected[k] = 1
     tp = (ious > args.iou_threshold).sum()
     fn = len(gt_detected) - gt_detected.sum()
-    return float(tp) / (len(timestamps) + eps), float(tp) / (tp + fn + eps)
+    #return float(tp) / (len(timestamps) + eps), float(tp) / (tp + fn + eps)
+    return float(tp) / (tp + fn + eps)
 
 
 def evaluate(data_loader, maximum=None):
@@ -222,7 +223,7 @@ def evaluate(data_loader, maximum=None):
     if maximum is not None:
         total = min(total, maximum)
     recall = np.zeros(total)
-    precision = np.zeros(total)
+    #precision = np.zeros(total)
     for batch_idx, (features, gt_times, duration) in enumerate(data_loader):
         if maximum is not None and batch_idx >= maximum:
             break
@@ -231,9 +232,10 @@ def evaluate(data_loader, maximum=None):
         features = Variable(features)
         proposals = model(features)
         # print proposals[0]
-        precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
-    return np.mean(precision), np.mean(recall)
-
+        #precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
+	recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
+   # return np.mean(precision), np.mean(recall)
+    return np.mean(recall)
 
 def train(epoch, w0):
     model.train()
@@ -260,10 +262,12 @@ def train(epoch, w0):
 
         # Debugging training samples
         if args.debug:
-            precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
-            log_entry = ('| precision: {:2.4f}\% ' \
-                '| recall: {:2.4f}\%'.format(precision, recall))
-            print log_entry
+	    recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
+            #precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
+            #log_entry = ('| precision: {:2.4f}\% ' \
+            #    '| recall: {:2.4f}\%'.format(precision, recall))
+            log_entry = ('| train recall@{}-iou={}: {:2.4f}\%'.format(args.num_proposals, args.iou_threshold, recall))
+	    print log_entry
 
         # Print out training loss every interval in the batch
         if batch_idx % args.log_interval == 0:# and batch_idx > 0:
@@ -285,14 +289,11 @@ print "training with w0 = {}".format(w0)
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
     train(epoch, w0)
-    # overfit training data
-    precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
     #todo: fix IndexError bug with val and test evaluator!
-    #precision, recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
+    recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
     print('-' * 89)
-    log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val precision: {:2.2f}\% ' \
-            '| val recall: {:2.2f}\%'.format(
-        epoch, (time.time() - epoch_start_time), precision, recall))
+    log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val recall@{}-iou={}: {:2.2f}\%'.format(
+        epoch, (time.time() - epoch_start_time), args.num_proposals, args.iou_threshold, recall))
     print log_entry
     print('-' * 89)
     with open(os.path.join(args.save, 'val.log'), 'a') as f:
@@ -302,6 +303,7 @@ for epoch in range(1, args.epochs+1):
         torch.save(model, os.path.join(args.save, 'model_' + str(epoch) + '.pth'))
 
 # Run on test data and save the model.
+# This is not needed now since test videos have no proposals 
 #print "| Testing model on test set"
 #test_dataset = EvaluateSplit(dataset.testing_ids, dataset, args)
 #test_evaluator = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
