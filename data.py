@@ -184,7 +184,8 @@ class DataSplit(Dataset):
 
     def __len__(self):
         if self.num_samples is not None:
-            return self.num_samples
+        	# in case num sample is greater than the dataset itself
+            	return min(self.num_samples, len(self.video_ids))
         return len(self.video_ids)
 
 class TrainSplit(DataSplit):
