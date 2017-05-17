@@ -1,11 +1,12 @@
-from torch.utils.data import Dataset
+import json
+import os
 
 import h5py
-import json
 import numpy as np
-import os
 import progressbar
 import torch
+from torch.utils.data import Dataset
+
 
 class ProposalDataset(object):
     """
@@ -25,7 +26,7 @@ class ProposalDataset(object):
         if not os.path.exists(args.labels) or not os.path.exists(args.vid_ids):
             self.generate_labels(args)
         self.labels = h5py.File(args.labels)
-	self.vid_ids = json.load(open(args.vid_ids))
+        self.vid_ids = json.load(open(args.vid_ids))
 
     def generate_labels(self, args):
         """
@@ -42,7 +43,7 @@ class ProposalDataset(object):
         gt_index = -1
         for i, (start, end) in enumerate(featstamps):
             intersection = max(0, min(end, end_i) - max(start, start_i))
-            union = min(max(end, end_i) - min(start, start_i), end-start + end_i-start_i)
+            union = min(max(end, end_i) - min(start, start_i), end - start + end_i - start_i)
             overlap = float(intersection) / (union + 1e-8)
             if overlap >= output:
                 output = overlap
@@ -57,10 +58,9 @@ class ProposalDataset(object):
         Convert the timestamps to feature indices
         """
         start, end = timestamp
-        start = min(int(round(start / duration * nfeats)), nfeats-1)
-        end = max(int(round(end /duration * nfeats)), start+1)
+        start = min(int(round(start / duration * nfeats)), nfeats - 1)
+        end = max(int(round(end / duration * nfeats)), start + 1)
         return start, end
-
 
     def compute_proposals_stats(self, prop_captured):
         """
@@ -72,7 +72,7 @@ class ProposalDataset(object):
         proportion = np.mean(prop_captured[prop_captured != -1])
         nb_no_proposals = (prop_captured == -1).sum()
         print "Number of videos in the dataset: {}".format(nb_videos)
-        print "Proportion of videos with no proposals: {}".format(1.*nb_no_proposals/nb_videos)
+        print "Proportion of videos with no proposals: {}".format(1. * nb_no_proposals / nb_videos)
         print "Proportion of action proposals captured during labels creation: {}".format(proportion)
 
 
@@ -88,12 +88,12 @@ class ActivityNet(ProposalDataset):
         super(self.__class__, self).__init__(args)
         self.durations = {}
         self.gt_times = {}
-	self.w1 = self.vid_ids['w1']
+        self.w1 = self.vid_ids['w1']
         for split in ['training', 'validation', 'testing']:
             setattr(self, split + '_ids', self.vid_ids[split])
             for video_id in self.vid_ids[split]:
-            	self.durations[video_id] = self.data['database'][video_id]['duration']
-            	self.gt_times[video_id] = [ann['segment'] for ann in self.data['database'][video_id]['annotations']]
+                self.durations[video_id] = self.data['database'][video_id]['duration']
+                self.gt_times[video_id] = [ann['segment'] for ann in self.data['database'][video_id]['annotations']]
 
     def generate_labels(self, args):
         """
@@ -102,10 +102,11 @@ class ActivityNet(ProposalDataset):
         print "| Generating labels for action proposals"
         label_dataset = h5py.File(args.labels, 'w')
         bar = progressbar.ProgressBar(maxval=len(self.data['database'].keys())).start()
-	prop_captured = []
+        prop_captured = []
         prop_pos_examples = []
-	video_ids = self.data['database'].keys()
-	split_ids = {'training':[], 'validation':[], 'testing':[], 'w1': []} # maybe find a better name since w1 is not a split
+        video_ids = self.data['database'].keys()
+        split_ids = {'training': [], 'validation': [], 'testing': [],
+                     'w1': []}  # maybe find a better name since w1 is not a split
         for progress, video_id in enumerate(video_ids):
             features = self.features['v_' + video_id]['c3d_features']
             nfeats = features.shape[0]
@@ -115,20 +116,20 @@ class ActivityNet(ProposalDataset):
             featstamps = [self.timestamp_to_featstamp(x, nfeats, duration) for x in timestamps]
             nb_prop = len(featstamps)
             for i in range(nb_prop):
-                if (featstamps[nb_prop-i-1][1] - featstamps[nb_prop-i-1][0]) > args.K / args.iou_threshold:
+                if (featstamps[nb_prop - i - 1][1] - featstamps[nb_prop - i - 1][0]) > args.K / args.iou_threshold:
                     # we discard these proposals since they will not be captured for this value of K 
-                    del featstamps[nb_prop-i-1]
-	    if len(featstamps) == 0:
+                    del featstamps[nb_prop - i - 1]
+            if len(featstamps) == 0:
                 if len(timestamps) == 0:
                     # no proposals il this video
                     prop_captured += [-1.]
                 else:
-		    # no proposals captured in this video since all have a length above threshold
+                    # no proposals captured in this video since all have a length above threshold
                     prop_captured += [0.]
-                continue 
-            # we keep track of the videos kept to update ids 
+                continue
+                # we keep track of the videos kept to update ids
             split_ids[self.data['database'][video_id]['subset']] += [video_id]
-	    labels = np.zeros((nfeats, args.K))
+            labels = np.zeros((nfeats, args.K))
             gt_captured = []
             for t in range(nfeats):
                 for k in xrange(args.K):
@@ -138,18 +139,17 @@ class ActivityNet(ProposalDataset):
                         gt_captured += [gt_index]
             prop_captured += [1. * len(np.unique(gt_captured)) / len(timestamps)]
             if self.data['database'][video_id]['subset'] == 'training':
-                prop_pos_examples += [np.sum(labels, axis=0)*1./nfeats]
-	    video_dataset = label_dataset.create_dataset(video_id, (nfeats, args.K), dtype='f')
+                prop_pos_examples += [np.sum(labels, axis=0) * 1. / nfeats]
+            video_dataset = label_dataset.create_dataset(video_id, (nfeats, args.K), dtype='f')
             video_dataset[...] = labels
             bar.update(progress)
-	split_ids['w1'] = np.array(prop_pos_examples).mean(axis=0).tolist() # this will be used to compute the loss 
-	json.dump(split_ids, open(args.vid_ids, 'w'))
-	self.compute_proposals_stats(np.array(prop_captured))
+        split_ids['w1'] = np.array(prop_pos_examples).mean(axis=0).tolist()  # this will be used to compute the loss
+        json.dump(split_ids, open(args.vid_ids, 'w'))
+        self.compute_proposals_stats(np.array(prop_captured))
         bar.finish()
 
 
 class DataSplit(Dataset):
-
     def __init__(self, video_ids, dataset, args):
         """
         video_ids - list of video ids in the split
@@ -184,12 +184,12 @@ class DataSplit(Dataset):
 
     def __len__(self):
         if self.num_samples is not None:
-        	# in case num sample is greater than the dataset itself
-            	return min(self.num_samples, len(self.video_ids))
+            # in case num sample is greater than the dataset itself
+            return min(self.num_samples, len(self.video_ids))
         return len(self.video_ids)
 
-class TrainSplit(DataSplit):
 
+class TrainSplit(DataSplit):
     def __init__(self, video_ids, dataset, args):
         super(self.__class__, self).__init__(video_ids, dataset, args)
 
@@ -223,31 +223,31 @@ class TrainSplit(DataSplit):
         label_windows = np.zeros((nWindows, self.W, self.K))
         for j, w_start in enumerate(sample):
             w_end = min(w_start + self.W, nfeats)
-            feature_windows[j, 0:w_end-w_start, :] = features[w_start:w_end, :]
-            label_windows[j, 0:w_end-w_start, :] = labels[w_start:w_end, :]
-	    #if label_windows[j].sum() == 0:
-		# check to see how often trainin examples have all 0 labels 
-	#	print "No proposals!!"
-	# code to sample proposals avoiding all 0 situations 
-	#k = 0
-	#while k<=50:
-	#	k += 1
-	#	sample = np.random.choice(nWindows, self.max_W)
-	#	nWindows = 1
-	#	masks = self.masks[:nWindows, :, :]
+            feature_windows[j, 0:w_end - w_start, :] = features[w_start:w_end, :]
+            label_windows[j, 0:w_end - w_start, :] = labels[w_start:w_end, :]
+            # if label_windows[j].sum() == 0:
+        # check to see how often trainin examples have all 0 labels
+        #	print "No proposals!!"
+        # code to sample proposals avoiding all 0 situations
+        # k = 0
+        # while k<=50:
+        #	k += 1
+        #	sample = np.random.choice(nWindows, self.max_W)
+        #	nWindows = 1
+        #	masks = self.masks[:nWindows, :, :]
         #	feature_windows = np.zeros((nWindows, self.W, features.shape[1]))
         #	label_windows = np.zeros((nWindows, self.W, self.K))
-	#	for j, w_start in enumerate(sample):
-	#		w_end = min(w_start + self.W, nfeats)
+        #	for j, w_start in enumerate(sample):
+        #		w_end = min(w_start + self.W, nfeats)
         #		feature_windows[j, 0:w_end-w_start, :] = features[w_start:w_end, :]
         #		label_windows[j, 0:w_end-w_start, :] = labels[w_start:w_end, :]
         #		if label_windows.sum()!=0:
-	#			return torch.FloatTensor(feature_windows), masks, torch.Tensor(label_windows)
-	#print "No labels!!!"
-	return torch.FloatTensor(feature_windows), masks, torch.Tensor(label_windows)
+        #			return torch.FloatTensor(feature_windows), masks, torch.Tensor(label_windows)
+        # print "No labels!!!"
+        return torch.FloatTensor(feature_windows), masks, torch.Tensor(label_windows)
+
 
 class EvaluateSplit(DataSplit):
-
     def __init__(self, video_ids, dataset, args):
         super(self.__class__, self).__init__(video_ids, dataset, args)
 
@@ -264,8 +264,8 @@ class EvaluateSplit(DataSplit):
 
     def __getitem__(self, index):
         # Let's get the video_id and the features and labels
-  	video_id = self.video_ids[index]
-	features = self.features['v_' + video_id]['c3d_features']
+        video_id = self.video_ids[index]
+        features = self.features['v_' + video_id]['c3d_features']
         duration = self.durations[video_id]
         gt_times = self.gt_times[video_id]
 

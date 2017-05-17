@@ -1,16 +1,17 @@
-from data import TrainSplit, EvaluateSplit
+import argparse
+import json
+import os
+import time
+
+import numpy as np
+import torch
+import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 import data
-import argparse
-import json
 import models
-import numpy as np
-import os
-import time
-import torch
-import torch.optim as optim
+from data import TrainSplit, EvaluateSplit
 
 parser = argparse.ArgumentParser(description='video features to LSTM Language Model')
 
@@ -25,9 +26,9 @@ parser.add_argument('--labels', type=str, default='data/ActivityNet/labels.hdf5'
                     help='location of the proposal labels')
 parser.add_argument('--vid-ids', type=str, default='data/ActivityNet/video_ids.json',
                     help='location of the video ids')
-parser.add_argument('--save', type=str,  default='data/models/default',
+parser.add_argument('--save', type=str, default='data/models/default',
                     help='path to folder where to save the final model and log files and corpus')
-parser.add_argument('--save-every', type=int,  default=1,
+parser.add_argument('--save-every', type=int, default=1,
                     help='Save the model every x epochs')
 parser.add_argument('--clean', dest='clean', action='store_true',
                     help='Delete the models and the log files in the folder')
@@ -90,7 +91,7 @@ parser.add_argument('--num-proposals', type=int, default=None,
 args = parser.parse_args()
 
 # Ensure that the kernel for RNN is greated than the number of proposals
-assert(args.W > args.K)
+assert (args.W > args.K)
 
 # Check if directory exists and create one if it doesn't:
 if not os.path.isdir(args.save):
@@ -128,17 +129,20 @@ with open(os.path.join(args.save, 'args.json'), 'w') as f:
 print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data, args.dataset)(args)
 # weight to use in CE loss
-#import ipdb;
-#ipdb.set_trace()
+# import ipdb;
+# ipdb.set_trace()
 w1 = dataset.w1
 train_dataset = TrainSplit(dataset.training_ids, dataset, args)
 val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
 train_val_dataset = EvaluateSplit(dataset.training_ids, dataset, args)
 print "| Dataset created"
-train_loader = DataLoader(train_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads, collate_fn=train_dataset.collate_fn)
-train_evaluator = DataLoader(train_val_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
-val_evaluator = DataLoader(val_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=val_dataset.collate_fn)
-print "| Data Loaded: # training data: %d, # val data: %d" % (len(train_loader)*args.batch_size, len(val_evaluator))
+train_loader = DataLoader(train_dataset, shuffle=args.shuffle, batch_size=args.batch_size, num_workers=args.nthreads,
+                          collate_fn=train_dataset.collate_fn)
+train_evaluator = DataLoader(train_val_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads,
+                             collate_fn=val_dataset.collate_fn)
+val_evaluator = DataLoader(val_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads,
+                           collate_fn=val_dataset.collate_fn)
+print "| Data Loaded: # training data: %d, # val data: %d" % (len(train_loader) * args.batch_size, len(val_evaluator))
 
 ###############################################################################
 # Build the model
@@ -148,18 +152,19 @@ if args.resume:
     model = torch.load(os.path.join(args.save, 'model.pth'))
 else:
     model = models.SST(
-        video_dim=args.video_dim,
-        hidden_dim=args.hidden_dim,
-        dropout=args.dropout,
-        W=args.W,
-        K=args.K,
-        rnn_type = args.rnn_type,
-        rnn_num_layers = args.rnn_num_layers,
-        rnn_dropout = args.rnn_dropout,
+            video_dim=args.video_dim,
+            hidden_dim=args.hidden_dim,
+            dropout=args.dropout,
+            W=args.W,
+            K=args.K,
+            rnn_type=args.rnn_type,
+            rnn_num_layers=args.rnn_num_layers,
+            rnn_dropout=args.rnn_dropout,
     )
 
 if args.cuda:
     model.cuda()
+
 
 ###############################################################################
 # Training code
@@ -217,7 +222,7 @@ def calculate_stats(proposals, gt_times, duration, args):
             gt_detected[k] = 1
     tp = (ious > args.iou_threshold).sum()
     fn = len(gt_detected) - gt_detected.sum()
-    #return float(tp) / (len(timestamps) + eps), float(tp) / (tp + fn + eps)
+    # return float(tp) / (len(timestamps) + eps), float(tp) / (tp + fn + eps)
     return float(tp) / (tp + fn + eps)
 
 
@@ -227,7 +232,7 @@ def evaluate(data_loader, maximum=None):
     if maximum is not None:
         total = min(total, maximum)
     recall = np.zeros(total)
-    #precision = np.zeros(total)
+    # precision = np.zeros(total)
     for batch_idx, (features, gt_times, duration) in enumerate(data_loader):
         if maximum is not None and batch_idx >= maximum:
             break
@@ -236,10 +241,11 @@ def evaluate(data_loader, maximum=None):
         features = Variable(features)
         proposals = model(features)
         # print proposals[0]
-        #precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
-	recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
-   # return np.mean(precision), np.mean(recall)
+        # precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
+        recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
+        # return np.mean(precision), np.mean(recall)
     return np.mean(recall)
+
 
 def train(epoch, w1):
     model.train()
@@ -258,47 +264,48 @@ def train(epoch, w1):
         loss.backward()
         optimizer.step()
         # ratio of weights updates to debug 
-        #for group in optimizer.param_groups:
-            #for p in group['params']:
-		#print "ratio of weights update "
-                #print p.grad.div(p).mean().data
+        # for group in optimizer.param_groups:
+        # for p in group['params']:
+        # print "ratio of weights update "
+        # print p.grad.div(p).mean().data
         total_loss.append(loss.data[0])
 
         # Debugging training samples
         if args.debug:
-	    recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
-            #precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
-            #log_entry = ('| precision: {:2.4f}\% ' \
+            recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
+            # precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
+            # log_entry = ('| precision: {:2.4f}\% ' \
             #    '| recall: {:2.4f}\%'.format(precision, recall))
             log_entry = ('| train recall@{}-iou={}: {:2.4f}\%'.format(args.num_proposals, args.iou_threshold, recall))
-	    print log_entry
+            print log_entry
 
         # Print out training loss every interval in the batch
-        if batch_idx % args.log_interval == 0:# and batch_idx > 0:
+        if batch_idx % args.log_interval == 0:  # and batch_idx > 0:
             cur_loss = total_loss[-1]
             elapsed = time.time() - start_time
             log_entry = '| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.4f} | ms/batch {:5.2f} | ' \
-                'loss {:5.6f}'.format(
-                epoch, batch_idx, len(train_loader), args.lr,
-                elapsed * 1000 / args.log_interval, cur_loss*1000)
+                        'loss {:5.6f}'.format(
+                    epoch, batch_idx, len(train_loader), args.lr,
+                    elapsed * 1000 / args.log_interval, cur_loss * 1000)
             print log_entry
             with open(os.path.join(args.save, 'train.log'), 'a') as f:
                 f.write(log_entry)
                 f.write('\n')
             start_time = time.time()
 
+
 # Loop over epochs.
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-#print "training with w0 = {}".format(w0)
-for epoch in range(1, args.epochs+1):
+# print "training with w0 = {}".format(w0)
+for epoch in range(1, args.epochs + 1):
     epoch_start_time = time.time()
     train(epoch, w1)
-    #todo: fix IndexError bug with val and test evaluator!
+    # todo: fix IndexError bug with val and test evaluator!
     recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
-    #recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
+    # recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val recall@{}-iou={}: {:2.2f}\%'.format(
-        epoch, (time.time() - epoch_start_time), args.num_proposals, args.iou_threshold, recall))
+            epoch, (time.time() - epoch_start_time), args.num_proposals, args.iou_threshold, recall))
     print log_entry
     print('-' * 89)
     with open(os.path.join(args.save, 'val.log'), 'a') as f:
@@ -309,13 +316,13 @@ for epoch in range(1, args.epochs+1):
 
 # Run on test data and save the model.
 # This is not needed now since test videos have no proposals 
-#print "| Testing model on test set"
-#test_dataset = EvaluateSplit(dataset.testing_ids, dataset, args)
-#test_evaluator = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
-#test_precision, test_recall = evaluate(test_evaluator)
-#print('=' * 89)
-#print('| End of training | test precision {:2.2f}\% | test recall {:2.2f}\%'.format(
+# print "| Testing model on test set"
+# test_dataset = EvaluateSplit(dataset.testing_ids, dataset, args)
+# test_evaluator = DataLoader(test_dataset, shuffle=args.shuffle, batch_size=1, num_workers=args.nthreads, collate_fn=test_dataset.collate_fn)
+# test_precision, test_recall = evaluate(test_evaluator)
+# print('=' * 89)
+# print('| End of training | test precision {:2.2f}\% | test recall {:2.2f}\%'.format(
 #    test_precision, test_recall))
-#print('=' * 89)
-#if args.save != '':
+# print('=' * 89)
+# if args.save != '':
 #    torch.save(model, os.path.join(args.save, 'model.pth'))
