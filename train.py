@@ -23,6 +23,8 @@ parser.add_argument('--features', type=str, default='data/ActivityNet/sub_activi
                     help='location of the video features')
 parser.add_argument('--labels', type=str, default='data/ActivityNet/labels.hdf5',
                     help='location of the proposal labels')
+parser.add_argument('--vid-ids', type=str, default='data/ActivityNet/video_ids.json',
+                    help='location of the video ids')
 parser.add_argument('--save', type=str,  default='data/models/default',
                     help='path to folder where to save the final model and log files and corpus')
 parser.add_argument('--save-every', type=int,  default=1,
@@ -126,7 +128,9 @@ with open(os.path.join(args.save, 'args.json'), 'w') as f:
 print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data, args.dataset)(args)
 # weight to use in CE loss
-w0 = 1. - dataset.w1
+#import ipdb;
+#ipdb.set_trace()
+w1 = dataset.w1
 train_dataset = TrainSplit(dataset.training_ids, dataset, args)
 val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
 train_val_dataset = EvaluateSplit(dataset.training_ids, dataset, args)
@@ -237,7 +241,7 @@ def evaluate(data_loader, maximum=None):
    # return np.mean(precision), np.mean(recall)
     return np.mean(recall)
 
-def train(epoch, w0):
+def train(epoch, w1):
     model.train()
     total_loss = []
     model.train()
@@ -250,7 +254,7 @@ def train(epoch, w0):
         features = Variable(features)
         optimizer.zero_grad()
         proposals = model(features)
-        loss = model.compute_loss_with_BCE(proposals, masks, labels, w0)
+        loss = model.compute_loss_with_BCE(proposals, masks, labels, w1)
         loss.backward()
         optimizer.step()
         # ratio of weights updates to debug 
@@ -285,12 +289,13 @@ def train(epoch, w0):
 
 # Loop over epochs.
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-print "training with w0 = {}".format(w0)
+#print "training with w0 = {}".format(w0)
 for epoch in range(1, args.epochs+1):
     epoch_start_time = time.time()
-    train(epoch, w0)
+    train(epoch, w1)
     #todo: fix IndexError bug with val and test evaluator!
     recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
+    #recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val recall@{}-iou={}: {:2.2f}\%'.format(
         epoch, (time.time() - epoch_start_time), args.num_proposals, args.iou_threshold, recall))

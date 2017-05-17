@@ -22,9 +22,10 @@ class ProposalDataset(object):
         assert os.path.exists(args.features)
         self.data = json.load(open(args.data))
         self.features = h5py.File(args.features)
-        if not os.path.exists(args.labels):
+        if not os.path.exists(args.labels) or not os.path.exists(args.vid_ids):
             self.generate_labels(args)
         self.labels = h5py.File(args.labels)
+	self.vid_ids = json.load(open(args.vid_ids))
 
     def generate_labels(self, args):
         """
@@ -87,13 +88,12 @@ class ActivityNet(ProposalDataset):
         super(self.__class__, self).__init__(args)
         self.durations = {}
         self.gt_times = {}
+	self.w1 = self.vid_ids['w1']
         for split in ['training', 'validation', 'testing']:
-            setattr(self, split + '_ids', [])
-        for video_id in self.data['database']:
-            split = self.data['database'][video_id]['subset']
-            getattr(self, split + '_ids').append(video_id)
-            self.durations[video_id] = self.data['database'][video_id]['duration']
-            self.gt_times[video_id] = [ann['segment'] for ann in self.data['database'][video_id]['annotations']]
+            setattr(self, split + '_ids', self.vid_ids[split])
+            for video_id in self.vid_ids[split]:
+            	self.durations[video_id] = self.data['database'][video_id]['duration']
+            	self.gt_times[video_id] = [ann['segment'] for ann in self.data['database'][video_id]['annotations']]
 
     def generate_labels(self, args):
         """
@@ -102,10 +102,10 @@ class ActivityNet(ProposalDataset):
         print "| Generating labels for action proposals"
         label_dataset = h5py.File(args.labels, 'w')
         bar = progressbar.ProgressBar(maxval=len(self.data['database'].keys())).start()
-        prop_captured = []
+	prop_captured = []
         prop_pos_examples = []
 	video_ids = self.data['database'].keys()
-	split_ids = {'training':[], 'validation':[], 'testing':[]}
+	split_ids = {'training':[], 'validation':[], 'testing':[], 'w1': []} # maybe find a better name since w1 is not a split
         for progress, video_id in enumerate(video_ids):
             features = self.features['v_' + video_id]['c3d_features']
             nfeats = features.shape[0]
@@ -119,8 +119,6 @@ class ActivityNet(ProposalDataset):
                     # we discard these proposals since they will not be captured for this value of K 
                     del featstamps[nb_prop-i-1]
 	    if len(featstamps) == 0:
-		# we remove this video from the dataset since any proposals were captured
-                del self.data['database'][video_id]
                 if len(timestamps) == 0:
                     # no proposals il this video
                     prop_captured += [-1.]
@@ -140,15 +138,12 @@ class ActivityNet(ProposalDataset):
                         gt_captured += [gt_index]
             prop_captured += [1. * len(np.unique(gt_captured)) / len(timestamps)]
             if self.data['database'][video_id]['subset'] == 'training':
-                prop_pos_examples += [np.sum(labels)*1./(nfeats * args.K)]
+                prop_pos_examples += [np.sum(labels, axis=0)*1./nfeats]
 	    video_dataset = label_dataset.create_dataset(video_id, (nfeats, args.K), dtype='f')
             video_dataset[...] = labels
             bar.update(progress)
-        self.w1 = np.mean(prop_pos_examples) # this will be used to compute the loss 
-	# todo:clean this 
-	self.training_ids = split_ids['training']
-	self.validation_ids = split_ids['validation']
-	self.testing_ids = split_ids['testing']
+	split_ids['w1'] = np.array(prop_pos_examples).mean(axis=0).tolist() # this will be used to compute the loss 
+	json.dump(split_ids, open(args.vid_ids, 'w'))
 	self.compute_proposals_stats(np.array(prop_captured))
         bar.finish()
 
