@@ -209,8 +209,8 @@ def calculate_stats(proposals, gt_times, duration, args):
     timestamps = proposals_to_timestamps(proposals.data, duration, args.num_proposals)
     gt_detected = np.zeros(len(gt_times))
     for i, timestamp in enumerate(timestamps):
-        iou, k = iou(timestamp, gt_times, return_index=True)
-        if iou > args.iou_threshold:
+        iou_i, k = iou(timestamp, gt_times, return_index=True)
+        if iou_i > args.iou_threshold:
             gt_detected[k] = 1
     return gt_detected.sum()*1./len(gt_detected)
 
