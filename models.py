@@ -75,7 +75,7 @@ class SST(nn.Module):
         labels = torch.autograd.Variable(labels.view(-1))
         masks = torch.autograd.Variable(masks.view(-1))
         outputs = outputs.view(-1).mul(masks)
-        criterion = torch.nn.BCELoss(weight=weights)  # .data)
+        criterion = torch.nn.BCELoss(weight=weights)
         loss = criterion(outputs, labels)
         return loss
 

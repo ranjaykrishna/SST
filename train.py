@@ -128,9 +128,6 @@ with open(os.path.join(args.save, 'args.json'), 'w') as f:
 
 print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data, args.dataset)(args)
-# weight to use in CE loss
-# import ipdb;
-# ipdb.set_trace()
 w1 = dataset.w1
 train_dataset = TrainSplit(dataset.training_ids, dataset, args)
 val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
@@ -188,9 +185,9 @@ def iou(interval, featstamps, return_index=False):
 
 
 def proposals_to_timestamps(proposals, duration, num_proposals):
-    # if num_proposals is None, extract all possible timestamps proposals
+    # if num_proposals is None, extract all possible proposals
     _, nb_steps, K = proposals.size()
-    if num_proposals:
+    if num_proposals and num_proposals < nb_steps * K:
         # keep only top num_proposals proposals
         sort, _ = proposals.view(nb_steps * K).sort()
         score_threshold = sort[-num_proposals]
@@ -199,7 +196,7 @@ def proposals_to_timestamps(proposals, duration, num_proposals):
     timestamps = []
     for time_step in np.arange(nb_steps):
         p = proposals[0, time_step]
-        if p.sum() != 0:
+        if p.sum() != 0:  # ie we have non zero score at this step
             end = time_step * step_length
             for k in np.arange(K):
                 if p[k] != 0:
@@ -209,21 +206,13 @@ def proposals_to_timestamps(proposals, duration, num_proposals):
 
 
 def calculate_stats(proposals, gt_times, duration, args):
-    eps = 1e-8
-    # todo: define iou and proposals_to_timestamps as ProposalDataset methods
-    # timestamps = proposals.proposals_to_timestamps(duration, args.num_proposals)
     timestamps = proposals_to_timestamps(proposals.data, duration, args.num_proposals)
-    ious = np.zeros(len(timestamps))
     gt_detected = np.zeros(len(gt_times))
     for i, timestamp in enumerate(timestamps):
-        # ious[i], k = proposals.iou(timestamp, gt_times, return_index=True)
-        ious[i], k = iou(timestamp, gt_times, return_index=True)
-        if ious[i] > args.iou_threshold:
+        iou, k = iou(timestamp, gt_times, return_index=True)
+        if iou > args.iou_threshold:
             gt_detected[k] = 1
-    tp = (ious > args.iou_threshold).sum()
-    fn = len(gt_detected) - gt_detected.sum()
-    # return float(tp) / (len(timestamps) + eps), float(tp) / (tp + fn + eps)
-    return float(tp) / (tp + fn + eps)
+    return gt_detected.sum()*1./len(gt_detected)
 
 
 def evaluate(data_loader, maximum=None):
@@ -232,7 +221,6 @@ def evaluate(data_loader, maximum=None):
     if maximum is not None:
         total = min(total, maximum)
     recall = np.zeros(total)
-    # precision = np.zeros(total)
     for batch_idx, (features, gt_times, duration) in enumerate(data_loader):
         if maximum is not None and batch_idx >= maximum:
             break
@@ -240,10 +228,7 @@ def evaluate(data_loader, maximum=None):
             features = features.cuda()
         features = Variable(features)
         proposals = model(features)
-        # print proposals[0]
-        # precision[batch_idx], recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
-        recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
-        # return np.mean(precision), np.mean(recall)
+	recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
     return np.mean(recall)
 
 
@@ -273,9 +258,6 @@ def train(epoch, w1):
         # Debugging training samples
         if args.debug:
             recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
-            # precision, recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
-            # log_entry = ('| precision: {:2.4f}\% ' \
-            #    '| recall: {:2.4f}\%'.format(precision, recall))
             log_entry = ('| train recall@{}-iou={}: {:2.4f}\%'.format(args.num_proposals, args.iou_threshold, recall))
             print log_entry
 
@@ -296,13 +278,10 @@ def train(epoch, w1):
 
 # Loop over epochs.
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-# print "training with w0 = {}".format(w0)
 for epoch in range(1, args.epochs + 1):
     epoch_start_time = time.time()
     train(epoch, w1)
-    # todo: fix IndexError bug with val and test evaluator!
     recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
-    # recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val recall@{}-iou={}: {:2.2f}\%'.format(
             epoch, (time.time() - epoch_start_time), args.num_proposals, args.iou_threshold, recall))
