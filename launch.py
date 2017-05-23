@@ -21,9 +21,9 @@ for _ in range(args.nruns):
         'dropout': '%.1f' % random.uniform(0.0, 0.5),
         'weight-decay': '%.1f' % random.uniform(0.0001, 0.001),
     }
-    model_name = os.path.join(args.model_folder, 'cap_' + '_'.join([k + str(params[k]) for k in params]))
+    model_name = os.path.join(args.model_dir, 'cap_' + '_'.join([k + str(params[k]) for k in params]))
     arguments = ' '.join(['--' + k + ' ' + str(params[k]) for k in params])
-    train = 'CUDA_VISIBLE_DEVICES='  + args.gpu + 'python train.py --cuda --debug --save ' + model_name + ' --labels ' + args.labels + ' --data ' + args.data + ' --features ' + args.features + ' --vid-ids ' + args.vid_ids + ' --epochs ' + args.epochs + ' --batch-size 128 --max-W 1 --nthreads 1 --K 128 --W 256 --num-proposals 1000 --iou-threshold ' + args.iou_threshold
+    train = 'CUDA_VISIBLE_DEVICES='  + args.gpu + 'python train.py --cuda --debug --save ' + model_name + ' --labels ' + args.labels + ' --data ' + args.data + ' --features ' + args.features + ' --vid-ids ' + str(args.vid_ids) + ' --epochs ' + str(args.epochs) + ' --batch-size 128 --max-W 1 --nthreads 1 --K 128 --W 256 --num-proposals 1000 --iou-threshold ' + str(args.iou_threshold)
     print '^'*89
     print train
     subprocess.call(train, shell=True)
