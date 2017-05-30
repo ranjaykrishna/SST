@@ -260,7 +260,9 @@ class EvaluateSplit(DataSplit):
         features = data[0][0]
         gt_times = data[0][1]
         durations = data[0][2]
-        return features.view(1, features.size(0), features.size(1)), gt_times, durations
+        labels = data[0][3]
+        masks = data[0][4]
+        return features.view(1, features.size(0), features.size(1)), gt_times, durations, labels, masks#, torch.cat(labels, 0) 
 
     def __getitem__(self, index):
         # Let's get the video_id and the features and labels
@@ -268,5 +270,10 @@ class EvaluateSplit(DataSplit):
         features = self.features['v_' + video_id]['c3d_features']
         duration = self.durations[video_id]
         gt_times = self.gt_times[video_id]
-
-        return torch.FloatTensor(features), gt_times, duration
+        labels = self.labels[video_id]
+        W, K = labels.shape
+        masks = np.zeros((1, W, K))
+        for index in range(W):
+            masks[:, index, :min(K, index)] = 1
+        masks = torch.FloatTensor(masks)
+        return torch.FloatTensor(features), gt_times, duration, torch.Tensor(np.array(labels)), masks

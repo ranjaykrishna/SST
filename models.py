@@ -67,16 +67,25 @@ class SST(nn.Module):
         """
         Uses weighted BCE to calculate loss
         """
-        w1 = torch.FloatTensor(w1).type_as(outputs.data)
-        w0 = 1. - w1
+        #w1 = torch.FloatTensor(w1).type_as(outputs.data)
+        #w0 = 1. - w1
+        N, _, _ = labels.size()
         labels = labels.mul(masks)
-        weights = labels.mul(w0.expand(labels.size())) + (1. - labels).mul(w1.expand(labels.size()))
-        weights = weights.view(-1)
-        labels = torch.autograd.Variable(labels.view(-1))
+        #weights = labels.mul(w0.expand(labels.size())) + (1. - labels).mul(w1.expand(labels.size()))
+        #weights = weights.view(-1)
+        labels = torch.autograd.Variable(labels.view(-1), requires_grad=False)
         masks = torch.autograd.Variable(masks.view(-1))
         outputs = outputs.view(-1).mul(masks)
-        criterion = torch.nn.BCELoss(weight=weights)
-        loss = criterion(outputs, labels)
+        #print (labels==outputs).sum()
+        #criterion = torch.nn.BCELoss(weight=weights)
+        criterion = torch.nn.BCELoss()
+        loss = criterion(outputs, labels)/N
+        #x = labels.cpu().data.numpy()
+        #y = outputs.cpu().data.numpy()
+        #y = 1.*(y>0.5)
+        #print x.sum()
+        #print y.sum()
+        #print (x == y).sum()/(len(x)*1.)
         return loss
 
     def compute_loss(self, outputs, masks, labels):
