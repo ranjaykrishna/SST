@@ -242,7 +242,8 @@ def evaluate(data_loader, maximum=None):
         #ipdb.set_trace()
 	#recall[batch_idx] = calculate_stats(labels, gt_times, duration, args)
         masks = masks.type_as(proposals.data)
-        recall[batch_idx] = calculate_stats(proposals.mul(Variable(masks)), gt_times, duration, args)
+        recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
+        #recall[batch_idx] = calculate_stats(proposals.mul(Variable(masks)), gt_times, duration, args)
     return np.mean(recall)
 
 def train(epoch, w1):

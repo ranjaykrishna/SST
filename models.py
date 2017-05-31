@@ -40,6 +40,8 @@ class SST(nn.Module):
 
         rnn_output, _ = self.rnn(features)
         rnn_output = rnn_output.contiguous()
+        import ipdb;
+        ipdb.set_trace()
         rnn_output = rnn_output.view(rnn_output.size(0) * rnn_output.size(1), rnn_output.size(2))
         outputs = torch.sigmoid(self.scores(rnn_output))
         return outputs.view(N, T, self.K)
@@ -69,17 +71,17 @@ class SST(nn.Module):
         """
         #w1 = torch.FloatTensor(w1).type_as(outputs.data)
         #w0 = 1. - w1
-        N, _, _ = labels.size()
+        N, W, K = labels.size()
         labels = labels.mul(masks)
         #weights = labels.mul(w0.expand(labels.size())) + (1. - labels).mul(w1.expand(labels.size()))
         #weights = weights.view(-1)
-        labels = torch.autograd.Variable(labels.view(-1), requires_grad=False)
-        masks = torch.autograd.Variable(masks.view(-1))
-        outputs = outputs.view(-1).mul(masks)
+        labels = torch.autograd.Variable(labels.view(-1))#, requires_grad=False)
+        masks = torch.autograd.Variable(masks)
+        outputs = outputs.mul(masks).view(-1)
         #print (labels==outputs).sum()
         #criterion = torch.nn.BCELoss(weight=weights)
         criterion = torch.nn.BCELoss()
-        loss = criterion(outputs, labels)/N
+        loss = criterion(outputs, labels)/(N*W*K)
         #x = labels.cpu().data.numpy()
         #y = outputs.cpu().data.numpy()
         #y = 1.*(y>0.5)
