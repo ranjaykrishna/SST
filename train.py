@@ -129,9 +129,6 @@ with open(os.path.join(args.save, 'args.json'), 'w') as f:
 print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data, args.dataset)(args)
 w1 = dataset.w1
-#train_ids = dataset.training_ids[:100]
-#train_dataset = TrainSplit(train_ids, dataset, args)
-#val_dataset = EvaluateSplit(train_ids, dataset, args)
 train_dataset = TrainSplit(dataset.training_ids, dataset, args)
 val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
 train_val_dataset = EvaluateSplit(dataset.training_ids, dataset, args)
@@ -209,19 +206,12 @@ def proposals_to_timestamps(proposals, duration, num_proposals):
 
 
 def calculate_stats(proposals, gt_times, duration, args):
-    #import ipdb;
-    #ipdb.set_trace()
     timestamps = proposals_to_timestamps(proposals.data, duration, args.num_proposals)
-    #timestamps = proposals_to_timestamps(proposals.view(1, -1, args.K), duration, args.num_proposals)
     gt_detected = np.zeros(len(gt_times))
     for i, timestamp in enumerate(timestamps):
         iou_i, k = iou(timestamp, gt_times, return_index=True)
         if iou_i > args.iou_threshold:
             gt_detected[k] = 1
-    #if gt_detected.sum()>0:
-    #print duration
-    #import ipdb;
-    #ipdb.set_trace()
     return gt_detected.sum()*100./len(gt_detected)
 
 
@@ -238,18 +228,16 @@ def evaluate(data_loader, maximum=None):
             features = features.cuda()
         features = Variable(features)
         proposals = model(features)
-        #import ipdb;
-        #ipdb.set_trace()
 	#recall[batch_idx] = calculate_stats(labels, gt_times, duration, args)
         masks = masks.type_as(proposals.data)
         recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
-        #recall[batch_idx] = calculate_stats(proposals.mul(Variable(masks)), gt_times, duration, args)
     return np.mean(recall)
 
 def train(epoch, w1):
-#    recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
-#    log_entry = ('| train recall@{}-iou={}: {:2.4f}\%'.format(args.num_proposals, args.iou_threshold, recall))
-#    print log_entry
+    if args.debug:
+        recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
+        log_entry = ('| train recall@{}-iou={}: {:2.4f}\%'.format(args.num_proposals, args.iou_threshold, recall))
+        print log_entry
     total_loss = []
     model.train()
     start_time = time.time()
@@ -265,26 +253,19 @@ def train(epoch, w1):
         loss.backward()
         optimizer.step()
         # ratio of weights updates to debug 
-        # for group in optimizer.param_groups:
-        # for p in group['params']:
-        # print "ratio of weights update "
-        # print p.grad.div(p).mean().data
+#        for group in optimizer.param_groups:
+#            for p in group['params']:
+#                print "ratio of weights update "
+#                print p.grad.div(p).mean().data
         total_loss.append(loss.data[0])
-
-        # Debugging training samples
-    #    if args.debug:
-        #    recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
-            #log_entry = ('| train recall@{}-iou={}: {:2.4f}\%'.format(args.num_proposals, args.iou_threshold, recall))
-            #print log_entry
-
         # Print out training loss every interval in the batch
-        if batch_idx % args.log_interval == 0:  # and batch_idx > 0:
+        if batch_idx % args.log_interval == 0:
             cur_loss = total_loss[-1]
             elapsed = time.time() - start_time
             log_entry = '| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.4f} | ms/batch {:5.2f} | ' \
                         'loss {:5.6f}'.format(
                     epoch, batch_idx, len(train_loader), optimizer.param_groups[0]['lr'],
-                    elapsed * 1000 / args.log_interval, cur_loss * 1000)
+                    elapsed * 1000 / args.log_interval, cur_loss )
             print log_entry
             with open(os.path.join(args.save, 'train.log'), 'a') as f:
                 f.write(log_entry)
@@ -299,8 +280,8 @@ def train(epoch, w1):
 # Loop over epochs.
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 for epoch in range(1, args.epochs + 1):
-    if (epoch+1)%5==0:
-    	optimizer.param_groups[0]['lr'] /= 2.
+#    if (epoch+1)%5==0:
+#    	optimizer.param_groups[0]['lr'] /= 2.
     epoch_start_time = time.time()
     recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
     print('-' * 89)
@@ -309,9 +290,9 @@ for epoch in range(1, args.epochs + 1):
     print log_entry
     print('-' * 89)
     train(epoch, w1)
-    with open(os.path.join(args.save, 'val.log'), 'a') as f:
-        f.write(log_entry)
-        f.write('\n')
+    #with open(os.path.join(args.save, 'val.log'), 'a') as f:
+    #    f.write(log_entry)
+    #    f.write('\n')
     #if args.save != '' and epoch % args.save_every == 0 and epoch > 0:
     #    torch.save(model, os.path.join(args.save, 'model_' + str(epoch) + '.pth'))
 

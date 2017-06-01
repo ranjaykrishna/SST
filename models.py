@@ -40,8 +40,6 @@ class SST(nn.Module):
 
         rnn_output, _ = self.rnn(features)
         rnn_output = rnn_output.contiguous()
-        import ipdb;
-        ipdb.set_trace()
         rnn_output = rnn_output.view(rnn_output.size(0) * rnn_output.size(1), rnn_output.size(2))
         outputs = torch.sigmoid(self.scores(rnn_output))
         return outputs.view(N, T, self.K)
@@ -69,25 +67,17 @@ class SST(nn.Module):
         """
         Uses weighted BCE to calculate loss
         """
-        #w1 = torch.FloatTensor(w1).type_as(outputs.data)
-        #w0 = 1. - w1
+        w1 = torch.FloatTensor(w1).type_as(outputs.data)
+        w0 = 1. - w1
         N, W, K = labels.size()
         labels = labels.mul(masks)
-        #weights = labels.mul(w0.expand(labels.size())) + (1. - labels).mul(w1.expand(labels.size()))
-        #weights = weights.view(-1)
-        labels = torch.autograd.Variable(labels.view(-1))#, requires_grad=False)
+        weights = labels.mul(w0.expand(labels.size())) + (1. - labels).mul(w1.expand(labels.size()))
+        weights = weights.view(-1)
+        labels = torch.autograd.Variable(labels.view(-1))
         masks = torch.autograd.Variable(masks)
         outputs = outputs.mul(masks).view(-1)
-        #print (labels==outputs).sum()
-        #criterion = torch.nn.BCELoss(weight=weights)
-        criterion = torch.nn.BCELoss()
-        loss = criterion(outputs, labels)/(N*W*K)
-        #x = labels.cpu().data.numpy()
-        #y = outputs.cpu().data.numpy()
-        #y = 1.*(y>0.5)
-        #print x.sum()
-        #print y.sum()
-        #print (x == y).sum()/(len(x)*1.)
+        criterion = torch.nn.BCELoss(weight=weights, size_average=False)
+        loss = criterion(outputs, labels)/(N*W)
         return loss
 
     def compute_loss(self, outputs, masks, labels):

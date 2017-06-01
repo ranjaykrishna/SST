@@ -210,21 +210,28 @@ class TrainSplit(DataSplit):
         features = self.features['v_' + video_id]['c3d_features']
         labels = self.labels[video_id]
         nfeats = features.shape[0]
-        nWindows = max(1, nfeats - self.W + 1)
-        # Let's sample the maximum number of windows we can pass back.
-        sample = range(nWindows)
-        if self.max_W < nWindows:
-            sample = np.random.choice(nWindows, self.max_W)
-            nWindows = self.max_W
-
-        # Create the outputs
-        masks = self.masks[:nWindows, :, :]
-        feature_windows = np.zeros((nWindows, self.W, features.shape[1]))
-        label_windows = np.zeros((nWindows, self.W, self.K))
-        for j, w_start in enumerate(sample):
-            w_end = min(w_start + self.W, nfeats)
-            feature_windows[j, 0:w_end - w_start, :] = features[w_start:w_end, :]
-            label_windows[j, 0:w_end - w_start, :] = labels[w_start:w_end, :]
+        if nfeats < self.W:
+            masks = self.masks[:1, :, :]
+            masks[:1, nfeats:, :] = 0
+            feature_windows = np.zeros((1, self.W, features.shape[1]))
+            label_windows = np.zeros((1, self.W, self.K))
+            label_windows[0, :nfeats, :] = labels
+            feature_windows[0, :nfeats, :] = features
+        else:
+            # Let's sample the maximum number of windows we can pass back.
+            nWindows = max(1, nfeats - self.W + 1)
+            sample = range(nWindows)
+            if self.max_W < nWindows:
+                sample = np.random.choice(nWindows, self.max_W)
+                nWindows = self.max_W
+            # Create the outputs
+            masks = self.masks[:nWindows, :, :]
+            feature_windows = np.zeros((nWindows, self.W, features.shape[1]))
+            label_windows = np.zeros((nWindows, self.W, self.K))
+            for j, w_start in enumerate(sample):
+                w_end = min(w_start + self.W, nfeats)
+                feature_windows[j, 0:w_end - w_start, :] = features[w_start:w_end, :]
+                label_windows[j, 0:w_end - w_start, :] = labels[w_start:w_end, :]
             # if label_windows[j].sum() == 0:
         # check to see how often trainin examples have all 0 labels
         #	print "No proposals!!"
