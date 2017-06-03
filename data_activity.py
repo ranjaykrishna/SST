@@ -28,6 +28,7 @@ class ProposalDataset(object):
         labels = h5py.File(args.labels)
         self.proposals_labels = labels['proposals']
         self.activity_labels = labels['activity']
+        self.vid_ids = json.load(open(args.vid_ids))
 
     def generate_labels(self, args):
         """
@@ -105,11 +106,10 @@ class ActivityNet(ProposalDataset):
         label_dataset = h5py.File(args.labels, 'w')
         video_ids = self.data['database'].keys()
         num_videos = len(video_ids)
-        proposals_dataset = label_dataset.create_dataset('proposals', (num_videos,), dtype='f')
-        activity_dataset = label_dataset.create_dataset('activity', (num_videos,), dtype='f')
+        proposals_group = label_dataset.create_group('proposals')
+        activity_group = label_dataset.create_group('activity')
         bar = progressbar.ProgressBar(maxval=len(self.data['database'].keys())).start()
-        split_ids = {'training': [], 'validation': [], 'testing': [],
-                     'w1': []}  # maybe find a better name since w1 is not a split
+        split_ids = {'training': [], 'validation': [], 'testing': []}
         labels_to_idx = {}
         prop_pos_examples = []  # used to compute w1 in the loss
         counter = 0  # counter to keep track of the activity labels
@@ -129,7 +129,7 @@ class ActivityNet(ProposalDataset):
             # we keep track of the videos kept to update ids
             split_ids[split] += [video_id]
             proposals_labels = np.zeros((nfeats, args.K))
-            activity_labels = -1 * np.zeros(nfeats)  # we use -1 to recognize timesteps with no activities
+            activity_labels = -1 * np.ones(nfeats)  # we use -1 to recognize timesteps with no activities
             for t in range(nfeats):
                 for k in xrange(args.K):
                     iou, gt_index = self.iou([t - k, t + 1], featstamps, return_index=True)
@@ -140,8 +140,8 @@ class ActivityNet(ProposalDataset):
                             labels_to_idx[label_ann] = counter
                             counter += 1
                         activity_labels[t] = labels_to_idx[label_ann]
-            video_prop_dataset = proposals_dataset.create_dataset(video_id, (nfeats, args.K), dtype='f')
-            video_activity_dataset = activity_dataset.create_dataset(video_id, (nfeats,), dtype='f')
+            video_prop_dataset = proposals_group.create_dataset(video_id, (nfeats, args.K), dtype='f')
+            video_activity_dataset = activity_group.create_dataset(video_id, (nfeats,), dtype='f')
             video_prop_dataset[...] = proposals_labels
             video_activity_dataset[...] = activity_labels
             bar.update(progress)
@@ -151,6 +151,7 @@ class ActivityNet(ProposalDataset):
         split_ids['nb_classes'] = len(labels_to_idx)
         json.dump(split_ids, open(args.vid_ids, 'w'))
         bar.finish()
+        print "generated activity labels with {} classes\n".format(len(labels_to_idx))
 
 
 class DataSplit(Dataset):
@@ -211,7 +212,7 @@ class TrainSplit(DataSplit):
         return features.view(1, features.size(0), features.size(1)), \
                masks.view(1, masks.size(0), masks.size(1)), \
                proposals_labels.view(1, proposals_labels.size(0), proposals_labels.size()[1]), \
-               activity_labels.view(1, activity_labels.size()[0], activity_labels.size()[1])
+               activity_labels.view(1, activity_labels.size()[0])
 
     def __getitem__(self, index):
         # Now let's get the video_id
@@ -220,8 +221,8 @@ class TrainSplit(DataSplit):
         proposals_labels = self.proposals_labels[video_id]
         activity_labels = self.activity_labels[video_id]
         nfeats = features.shape[0]
-        nWindows = max(0, nfeats - self.W)
-        start = np.random.choice(nWindows)
+        nWindows = max(1, 1 + nfeats - self.W)
+        start = np.random.choice(nWindows)-1
         end = min(nfeats, start + self.W)
         masks = self.masks
         masks[min(nfeats, self.W):, :] = 0
@@ -231,7 +232,7 @@ class TrainSplit(DataSplit):
         proposals_labels_windows[start:end, :] = proposals_labels[start:end, :]
         activity_labels_windows[start:end] = activity_labels[start:end]
         feature_windows[start:end, :] = features[start:end, :]
-        return torch.FloatTensor(feature_windows), masks, torch.Tesor(proposals_labels_windows), torch.Tensor(
+        return torch.FloatTensor(feature_windows), masks, torch.Tensor(proposals_labels_windows), torch.Tensor(
             activity_labels_windows)
 
 
@@ -252,7 +253,7 @@ class EvaluateSplit(DataSplit):
         activity_labels = data[0][4]
         return features.view(1, features.size(0), features.size(1)), \
                gt_times, durations, proposals_labels.view(1, proposals_labels.size(0), proposals_labels.size()[1]),  \
-               activity_labels.view(1, activity_labels.size()[0], activity_labels.size()[1])
+               activity_labels.view(1, activity_labels.size()[0])
 
     def __getitem__(self, index):
         # Let's get the video_id and the features and labels

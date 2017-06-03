@@ -30,6 +30,7 @@ class SST(nn.Module):
         self.rnn_num_layers = rnn_num_layers
         self.rnn_dropout = rnn_dropout
         self.K = K
+	self.C = C
 
     def eval(self):
         self.rnn.dropout = 0
@@ -55,9 +56,11 @@ class SST(nn.Module):
         loss = torch.autograd.Variable(torch.zeros(N))
         nb_examples = 0
         for i in range(N):
-            indexes = activity_labels[i] != -1
-            labels = activity_labels[indexes]
-            scores = activity_scores[i][indexes, :].view(-1, C)
+            indexes = (activity_labels[i] != -1).cuda()
+            labels = activity_labels[indexes.data]
+            import ipdb;
+            ipdb.set_trace()
+            scores = activity_scores[i][indexes.data, :]
             loss[i] = criterion(scores, labels)
             nb_examples += indexes.size()[0]
         return loss.sum() / nb_examples
@@ -67,8 +70,10 @@ class SST(nn.Module):
         # todo: add masking
         activity_labels = torch.autograd.Variable(activity_labels).view(N * W)
         activity_scores = activity_scores.view(N * W, C)
-        indexes = activity_labels != -1
+        indexes = (activity_labels != -1).data
         labels = activity_labels[indexes]
+        import ipdb;
+        ipdb.set_trace()
         scores = activity_scores[indexes, :]
         criterion = torch.nn.CrossEntropyLoss(size_average=False)
         loss = criterion(scores, labels)

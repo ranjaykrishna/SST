@@ -130,7 +130,6 @@ print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data_activity, args.dataset)(args)
 w1 = dataset.w1
 nb_classes = dataset.nb_classes
-assert nb_classes == 200
 train_dataset = TrainSplit(dataset.training_ids, dataset, args)
 val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
 train_val_dataset = EvaluateSplit(dataset.training_ids, dataset, args)
@@ -253,7 +252,10 @@ def train(epoch, w1):
         optimizer.zero_grad()
         proposals, activity_scores = model(features)
         proposal_loss = model.compute_loss_with_BCE(proposals, masks, proposals_labels, w1)
-        activity_loss = model.compute_softmax_loss(activity_scores, activity_labels)
+        activity_loss = model.compute_slow_softmax_loss(activity_scores, activity_labels) 
+        print activity_loss
+        losss = model.compute_softmax_loss(activity_scores, activity_labels)       
+        print losss
         loss = proposal_loss + activity_loss  # todo: add weight
         loss.backward()
         optimizer.step()
