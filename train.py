@@ -129,7 +129,7 @@ with open(os.path.join(args.save, 'args.json'), 'w') as f:
 print "| Loading data into corpus: %s" % args.data
 dataset = getattr(data_activity, args.dataset)(args)
 w1 = dataset.w1
-nb_classes = dataset.nb_classes
+nb_classes = len(dataset.labels_to_idx)
 train_dataset = TrainSplit(dataset.training_ids, dataset, args)
 val_dataset = EvaluateSplit(dataset.validation_ids, dataset, args)
 train_val_dataset = EvaluateSplit(dataset.training_ids, dataset, args)
@@ -186,7 +186,7 @@ def iou(interval, featstamps, return_index=False):
     return output
 
 
-def proposals_to_timestamps(proposals, duration, num_proposals):
+def proposals_to_timestamps(proposals, duration, num_proposals=None):
     # if num_proposals is None, extract all possible proposals
     _, nb_steps, K = proposals.size()
     if num_proposals and num_proposals < nb_steps * K:
@@ -214,7 +214,43 @@ def calculate_stats(proposals, gt_times, duration, args):
         iou_i, k = iou(timestamp, gt_times, return_index=True)
         if iou_i > args.iou_threshold:
             gt_detected[k] = 1
-    return gt_detected.sum()*100./len(gt_detected)
+    return gt_detected.sum() * 100. / len(gt_detected)
+
+
+def compute_map(proposals, scores, gt_times, duration, target_class, args):
+    _, nb_steps, K = proposals.size()
+    step_length = duration / nb_steps
+    tp = 0.
+    fp = 0.
+    for time_step in np.arange(nb_steps):
+        end = time_step * step_length
+        for k in np.arange(K):
+            start = max(0, time_step - k - 1) * step_length
+            iou_i, k = iou((start, end), gt_times, return_index=True)
+            if iou_i > args.iou_threshold:
+                _, pred = torch.max(scores[time_step])
+                if pred == target_class:
+                    tp += 1
+                else:
+                    fp += 1
+    return tp / (tp + fp + 1e-8)
+
+
+def evaluate_activity_detection(data_loader, target_class, maximum=None):
+    model.eval()
+    map = []
+    for batch_idx, (features, gt_times, duration, proposals_labels, activity_labels) in enumerate(data_loader):
+        if maximum is not None and batch_idx >= maximum:
+            break
+        if args.cuda:
+            features = features.cuda()
+        features = Variable(features)
+        proposals, activity_scores = model(features)
+        for i, gt_time in enumerate(gt_times):
+            label = activity_labels[i]
+            if label == target_class:
+                map += [compute_map(proposals, activity_scores, [gt_time], duration, label, args)]
+    return np.mean(map)*100
 
 
 def evaluate(data_loader, maximum=None):
@@ -236,9 +272,12 @@ def evaluate(data_loader, maximum=None):
 
 def train(epoch, w1):
     if args.debug:
+        map = evaluate_activity_detection(train_evaluator, maximum=args.num_vids_eval)
         recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
+        log_entry_map = ('| map-iou={}: {:2.4f}\%'.format(args.iou_threshold, map))
         log_entry = ('| train recall@{}-iou={}: {:2.4f}\%'.format(args.num_proposals, args.iou_threshold, recall))
         print log_entry
+        print log_entry_map
     total_loss = []
     model.train()
     start_time = time.time()
@@ -252,18 +291,19 @@ def train(epoch, w1):
         optimizer.zero_grad()
         proposals, activity_scores = model(features)
         proposal_loss = model.compute_loss_with_BCE(proposals, masks, proposals_labels, w1)
-        activity_loss = model.compute_slow_softmax_loss(activity_scores, activity_labels) 
-        print activity_loss
-        losss = model.compute_softmax_loss(activity_scores, activity_labels)       
-        print losss
+        # activity_loss = model.compute_slow_softmax_loss(activity_scores, activity_labels)
+        # print activity_loss
+        # losss = model.compute_softmax_loss(activity_scores, activity_labels)
+        # print losss
+        activity_loss = 0
         loss = proposal_loss + activity_loss  # todo: add weight
         loss.backward()
         optimizer.step()
         # ratio of weights updates to debug 
-#        for group in optimizer.param_groups:
-#            for p in group['params']:
-#                print "ratio of weights update "
-#                print p.grad.div(p).mean().data
+        #        for group in optimizer.param_groups:
+        #            for p in group['params']:
+        #                print "ratio of weights update "
+        #                print p.grad.div(p).mean().data
         total_loss.append(loss.data[0])
         # Print out training loss every interval in the batch
         if batch_idx % args.log_interval == 0:
@@ -279,21 +319,25 @@ def train(epoch, w1):
                 f.write('\n')
             start_time = time.time()
 
+
 # Loop over epochs.
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 for epoch in range(1, args.epochs + 1):
-#    if (epoch+1)%5==0:
-#    	optimizer.param_groups[0]['lr'] /= 2.
+    #    if (epoch+1)%5==0:
+    #    	optimizer.param_groups[0]['lr'] /= 2.
     epoch_start_time = time.time()
-    recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
+    recall = evaluate_activity_detection(val_evaluator, maximum=args.num_vids_eval)
+    map = evaluate_activity_detection(val_evaluator, maximum=args.num_vids_eval)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val recall@{}-iou={}: {:2.2f}\%'.format(
             epoch, (time.time() - epoch_start_time), args.num_proposals, args.iou_threshold, recall))
+    log_entry_map = ('| map-iou={}: {:2.4f}\%'.format(args.iou_threshold, map))
     print log_entry
+    print log_entry_map
     print('-' * 89)
     train(epoch, w1)
     with open(os.path.join(args.save, 'val.log'), 'a') as f:
         f.write(log_entry)
         f.write('\n')
-    # if args.save != '' and epoch % args.save_every == 0 and epoch > 0:
-    #    torch.save(model, os.path.join(args.save, 'model_' + str(epoch) + '.pth'))
+        # if args.save != '' and epoch % args.save_every == 0 and epoch > 0:
+        #    torch.save(model, os.path.join(args.save, 'model_' + str(epoch) + '.pth'))

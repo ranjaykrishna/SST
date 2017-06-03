@@ -56,10 +56,9 @@ class SST(nn.Module):
         loss = torch.autograd.Variable(torch.zeros(N))
         nb_examples = 0
         for i in range(N):
-            indexes = (activity_labels[i] != -1).cuda()
-            labels = activity_labels[indexes.data]
-            import ipdb;
-            ipdb.set_trace()
+            indexes = (activity_labels[i] != -1)
+            labels = torch.zeros(indexes.sum())
+            # labels = activity_labels[indexes.data]
             scores = activity_scores[i][indexes.data, :]
             loss[i] = criterion(scores, labels)
             nb_examples += indexes.size()[0]

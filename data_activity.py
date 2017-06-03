@@ -90,13 +90,15 @@ class ActivityNet(ProposalDataset):
         super(self.__class__, self).__init__(args)
         self.durations = {}
         self.gt_times = {}
+        self.gt_activities = {}
         self.w1 = self.vid_ids['w1']
-        self.nb_classes = self.vid_ids['nb_classes']
+        self.labels_to_idx = self.vid_ids['labels_to_idx']
         for split in ['training', 'validation', 'testing']:
             setattr(self, split + '_ids', self.vid_ids[split])
             for video_id in self.vid_ids[split]:
                 self.durations[video_id] = self.data['database'][video_id]['duration']
                 self.gt_times[video_id] = [ann['segment'] for ann in self.data['database'][video_id]['annotations']]
+                self.gt_activities[video_id] = [self.labels_to_idx[ann['segment']] for ann in self.data['database'][video_id]['annotations']]
 
     def generate_labels(self, args):
         """
@@ -148,7 +150,7 @@ class ActivityNet(ProposalDataset):
             if self.data['database'][video_id]['subset'] == 'training':
                 prop_pos_examples += [np.mean(proposals_labels, axis=0)]
         split_ids['w1'] = np.array(prop_pos_examples).mean(axis=0).tolist()  # this will be used to compute the loss
-        split_ids['nb_classes'] = len(labels_to_idx)
+        split_ids['labels_to_idx'] = labels_to_idx
         json.dump(split_ids, open(args.vid_ids, 'w'))
         bar.finish()
         print "generated activity labels with {} classes\n".format(len(labels_to_idx))
@@ -250,10 +252,10 @@ class EvaluateSplit(DataSplit):
         gt_times = data[0][1]
         durations = data[0][2]
         proposals_labels = data[0][3]
-        activity_labels = data[0][4]
+        activities_labels = data[0][4]
         return features.view(1, features.size(0), features.size(1)), \
                gt_times, durations, proposals_labels.view(1, proposals_labels.size(0), proposals_labels.size()[1]),  \
-               activity_labels.view(1, activity_labels.size()[0])
+               activities_labels
 
     def __getitem__(self, index):
         # Let's get the video_id and the features and labels
@@ -261,6 +263,6 @@ class EvaluateSplit(DataSplit):
         features = self.features['v_' + video_id]['c3d_features']
         duration = self.durations[video_id]
         gt_times = self.gt_times[video_id]
+        activities_labels = self.gt_activities[video_id]
         proposals_labels = self.proposals_labels[video_id]
-        activity_labels = self.activity_labels[video_id]
-        return torch.FloatTensor(features), gt_times, duration, torch.Tensor(np.array(proposals_labels)), torch.Tensor(np.array(activity_labels))
+        return torch.FloatTensor(features), gt_times, duration, torch.Tensor(np.array(proposals_labels)), activities_labels
