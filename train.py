@@ -290,9 +290,9 @@ for epoch in range(1, args.epochs + 1):
     print log_entry
     print('-' * 89)
     train(epoch, w1)
-    #with open(os.path.join(args.save, 'val.log'), 'a') as f:
-    #    f.write(log_entry)
-    #    f.write('\n')
+    with open(os.path.join(args.save, 'val.log'), 'a') as f:
+        f.write(log_entry)
+        f.write('\n')
     #if args.save != '' and epoch % args.save_every == 0 and epoch > 0:
     #    torch.save(model, os.path.join(args.save, 'model_' + str(epoch) + '.pth'))
 
