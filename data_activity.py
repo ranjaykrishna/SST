@@ -25,8 +25,9 @@ class ProposalDataset(object):
         self.features = h5py.File(args.features)
         if not os.path.exists(args.labels) or not os.path.exists(args.vid_ids):
             self.generate_labels(args)
-        self.labels = h5py.File(args.labels)
-        self.vid_ids = json.load(open(args.vid_ids))
+        labels = h5py.File(args.labels)
+        self.proposals_labels = labels['proposals']
+        self.activity_labels = labels['activity']
 
     def generate_labels(self, args):
         """
@@ -89,6 +90,7 @@ class ActivityNet(ProposalDataset):
         self.durations = {}
         self.gt_times = {}
         self.w1 = self.vid_ids['w1']
+        self.nb_classes = self.vid_ids['nb_classes']
         for split in ['training', 'validation', 'testing']:
             setattr(self, split + '_ids', self.vid_ids[split])
             for video_id in self.vid_ids[split]:
@@ -101,51 +103,53 @@ class ActivityNet(ProposalDataset):
         """
         print "| Generating labels for action proposals"
         label_dataset = h5py.File(args.labels, 'w')
-        bar = progressbar.ProgressBar(maxval=len(self.data['database'].keys())).start()
-        prop_captured = []
-        prop_pos_examples = []
         video_ids = self.data['database'].keys()
+        num_videos = len(video_ids)
+        proposals_dataset = label_dataset.create_dataset('proposals', (num_videos,), dtype='f')
+        activity_dataset = label_dataset.create_dataset('activity', (num_videos,), dtype='f')
+        bar = progressbar.ProgressBar(maxval=len(self.data['database'].keys())).start()
         split_ids = {'training': [], 'validation': [], 'testing': [],
                      'w1': []}  # maybe find a better name since w1 is not a split
+        labels_to_idx = {}
+        prop_pos_examples = []  # used to compute w1 in the loss
+        counter = 0  # counter to keep track of the activity labels
         for progress, video_id in enumerate(video_ids):
             features = self.features['v_' + video_id]['c3d_features']
             nfeats = features.shape[0]
             duration = self.data['database'][video_id]['duration']
             annotations = self.data['database'][video_id]['annotations']
             timestamps = [ann['segment'] for ann in annotations]
+            activity_annotations = [ann['label'] for ann in annotations]
             featstamps = [self.timestamp_to_featstamp(x, nfeats, duration) for x in timestamps]
-            nb_prop = len(featstamps)
-            for i in range(nb_prop):
-                if (featstamps[nb_prop - i - 1][1] - featstamps[nb_prop - i - 1][0]) > args.K / args.iou_threshold:
-                    # we discard these proposals since they will not be captured for this value of K
-                    del featstamps[nb_prop - i - 1]
-            if len(featstamps) == 0:
-                if len(timestamps) == 0:
-                    # no proposals il this video
-                    prop_captured += [-1.]
-                else:
-                    # no proposals captured in this video since all have a length above threshold
-                    prop_captured += [0.]
-                continue
-                # we keep track of the videos kept to update ids
-            split_ids[self.data['database'][video_id]['subset']] += [video_id]
-            labels = np.zeros((nfeats, args.K))
-            gt_captured = []
+            split = self.data['database'][video_id]['subset']
+            for start, end in featstamps:
+                if split == 'training' and (end - start) > args.K / args.iou_threshold:
+                    # go to the next video since this one has proposals that would not be captured
+                    continue
+            # we keep track of the videos kept to update ids
+            split_ids[split] += [video_id]
+            proposals_labels = np.zeros((nfeats, args.K))
+            activity_labels = -1 * np.zeros(nfeats)  # we use -1 to recognize timesteps with no activities
             for t in range(nfeats):
                 for k in xrange(args.K):
                     iou, gt_index = self.iou([t - k, t + 1], featstamps, return_index=True)
                     if iou >= args.iou_threshold:
-                        labels[t, k] = 1
-                        gt_captured += [gt_index]
-            prop_captured += [1. * len(np.unique(gt_captured)) / len(timestamps)]
-            if self.data['database'][video_id]['subset'] == 'training':
-                prop_pos_examples += [np.sum(labels, axis=0) * 1. / nfeats]
-            video_dataset = label_dataset.create_dataset(video_id, (nfeats, args.K), dtype='f')
-            video_dataset[...] = labels
+                        proposals_labels[t, k] = 1.
+                        label_ann = activity_annotations[gt_index]
+                        if label_ann not in labels_to_idx.keys():
+                            labels_to_idx[label_ann] = counter
+                            counter += 1
+                        activity_labels[t] = labels_to_idx[label_ann]
+            video_prop_dataset = proposals_dataset.create_dataset(video_id, (nfeats, args.K), dtype='f')
+            video_activity_dataset = activity_dataset.create_dataset(video_id, (nfeats,), dtype='f')
+            video_prop_dataset[...] = proposals_labels
+            video_activity_dataset[...] = activity_labels
             bar.update(progress)
+            if self.data['database'][video_id]['subset'] == 'training':
+                prop_pos_examples += [np.mean(proposals_labels, axis=0)]
         split_ids['w1'] = np.array(prop_pos_examples).mean(axis=0).tolist()  # this will be used to compute the loss
+        split_ids['nb_classes'] = len(labels_to_idx)
         json.dump(split_ids, open(args.vid_ids, 'w'))
-        self.compute_proposals_stats(np.array(prop_captured))
         bar.finish()
 
 
@@ -162,7 +166,8 @@ class DataSplit(Dataset):
         """
         self.video_ids = video_ids
         self.features = dataset.features
-        self.labels = dataset.labels
+        self.proposals_labels = dataset.proposals_labels
+        self.activity_labels = dataset.activity_labels
         self.durations = dataset.durations
         self.gt_times = dataset.gt_times
         self.num_samples = args.num_samples
@@ -171,9 +176,9 @@ class DataSplit(Dataset):
         self.max_W = args.max_W
 
         # Precompute masks
-        self.masks = np.zeros((self.max_W, self.W, self.K))
+        self.masks = np.zeros((self.W, self.K))
         for index in range(self.W):
-            self.masks[:, index, :min(self.K, index)] = 1
+            self.masks[index, :min(self.K, index)] = 1
         self.masks = torch.FloatTensor(self.masks)
 
     def __getitem__(self, index):
@@ -196,55 +201,38 @@ class TrainSplit(DataSplit):
     def collate_fn(self, data):
         """
         This function will be used by the DataLoader to concatenate outputs from
-        multiple called to __get__item(). It will concatanate the windows along
+        multiple called to __get__item(). It will concatenate the windows along
         the first dimension
         """
-        features = [d[0] for d in data]
-        masks = [d[1] for d in data]
-        labels = [d[2] for d in data]
-        return torch.cat(features, 0), torch.cat(masks, 0), torch.cat(labels, 0)
+        features = data[0][0]
+        masks = data[0][1]
+        proposals_labels = data[0][2]
+        activity_labels = data[0][3]
+        return features.view(1, features.size(0), features.size(1)), \
+               masks.view(1, masks.size(0), masks.size(1)), \
+               proposals_labels.view(1, proposals_labels.size(0), proposals_labels.size()[1]), \
+               activity_labels.view(1, activity_labels.size()[0], activity_labels.size()[1])
 
     def __getitem__(self, index):
         # Now let's get the video_id
         video_id = self.video_ids[index]
         features = self.features['v_' + video_id]['c3d_features']
-        labels = self.labels[video_id]
+        proposals_labels = self.proposals_labels[video_id]
+        activity_labels = self.activity_labels[video_id]
         nfeats = features.shape[0]
-        nWindows = max(1, nfeats - self.W + 1)
-        # Let's sample the maximum number of windows we can pass back.
-        sample = range(nWindows)
-        if self.max_W < nWindows:
-            sample = np.random.choice(nWindows, self.max_W)
-            nWindows = self.max_W
-
-        # Create the outputs
-        masks = self.masks[:nWindows, :, :]
-        feature_windows = np.zeros((nWindows, self.W, features.shape[1]))
-        label_windows = np.zeros((nWindows, self.W, self.K))
-        for j, w_start in enumerate(sample):
-            w_end = min(w_start + self.W, nfeats)
-            feature_windows[j, 0:w_end - w_start, :] = features[w_start:w_end, :]
-            label_windows[j, 0:w_end - w_start, :] = labels[w_start:w_end, :]
-            # if label_windows[j].sum() == 0:
-        # check to see how often trainin examples have all 0 labels
-        #	print "No proposals!!"
-        # code to sample proposals avoiding all 0 situations
-        # k = 0
-        # while k<=50:
-        #	k += 1
-        #	sample = np.random.choice(nWindows, self.max_W)
-        #	nWindows = 1
-        #	masks = self.masks[:nWindows, :, :]
-        #	feature_windows = np.zeros((nWindows, self.W, features.shape[1]))
-        #	label_windows = np.zeros((nWindows, self.W, self.K))
-        #	for j, w_start in enumerate(sample):
-        #		w_end = min(w_start + self.W, nfeats)
-        #		feature_windows[j, 0:w_end-w_start, :] = features[w_start:w_end, :]
-        #		label_windows[j, 0:w_end-w_start, :] = labels[w_start:w_end, :]
-        #		if label_windows.sum()!=0:
-        #			return torch.FloatTensor(feature_windows), masks, torch.Tensor(label_windows)
-        # print "No labels!!!"
-        return torch.FloatTensor(feature_windows), masks, torch.Tensor(label_windows)
+        nWindows = max(0, nfeats - self.W)
+        start = np.random.choice(nWindows)
+        end = min(nfeats, start + self.W)
+        masks = self.masks
+        masks[min(nfeats, self.W):, :] = 0
+        feature_windows = np.zeros((self.W, features.shape[1]))
+        proposals_labels_windows = np.zeros((self.W, self.K))
+        activity_labels_windows = np.zeros(self.W)
+        proposals_labels_windows[start:end, :] = proposals_labels[start:end, :]
+        activity_labels_windows[start:end] = activity_labels[start:end]
+        feature_windows[start:end, :] = features[start:end, :]
+        return torch.FloatTensor(feature_windows), masks, torch.Tesor(proposals_labels_windows), torch.Tensor(
+            activity_labels_windows)
 
 
 class EvaluateSplit(DataSplit):
@@ -260,7 +248,11 @@ class EvaluateSplit(DataSplit):
         features = data[0][0]
         gt_times = data[0][1]
         durations = data[0][2]
-        return features.view(1, features.size(0), features.size(1)), gt_times, durations
+        proposals_labels = data[0][3]
+        activity_labels = data[0][4]
+        return features.view(1, features.size(0), features.size(1)), \
+               gt_times, durations, proposals_labels.view(1, proposals_labels.size(0), proposals_labels.size()[1]),  \
+               activity_labels.view(1, activity_labels.size()[0], activity_labels.size()[1])
 
     def __getitem__(self, index):
         # Let's get the video_id and the features and labels
@@ -268,5 +260,6 @@ class EvaluateSplit(DataSplit):
         features = self.features['v_' + video_id]['c3d_features']
         duration = self.durations[video_id]
         gt_times = self.gt_times[video_id]
-
-        return torch.FloatTensor(features), gt_times, duration
+        proposals_labels = self.proposals_labels[video_id]
+        activity_labels = self.activity_labels[video_id]
+        return torch.FloatTensor(features), gt_times, duration, torch.Tensor(np.array(proposals_labels)), torch.Tensor(np.array(activity_labels))

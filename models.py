@@ -13,13 +13,15 @@ class SST(nn.Module):
                  dropout=0,
                  W=64,
                  K=64,
+                 C=200,
                  rnn_type='GRU',
                  rnn_num_layers=2,
                  rnn_dropout=0.2,
                  ):
         super(SST, self).__init__()
         self.rnn = getattr(nn, rnn_type)(video_dim, hidden_dim, rnn_num_layers, batch_first=True, dropout=rnn_dropout)
-        self.scores = torch.nn.Linear(hidden_dim, K)
+        self.proposals_scores = torch.nn.Linear(hidden_dim, K)
+        self.activity_scores = torch.nn.Linear(hidden_dim, C)
 
         # Saving arguments
         self.video_dim = video_dim
@@ -41,27 +43,36 @@ class SST(nn.Module):
         rnn_output, _ = self.rnn(features)
         rnn_output = rnn_output.contiguous()
         rnn_output = rnn_output.view(rnn_output.size(0) * rnn_output.size(1), rnn_output.size(2))
-        outputs = torch.sigmoid(self.scores(rnn_output))
-        return outputs.view(N, T, self.K)
+        proposals_outputs = torch.sigmoid(self.proposals_scores(rnn_output))
+        activity_outputs = self.activity_scores(rnn_output)
+        return proposals_outputs.view(N, T, self.K), activity_outputs.view(N, T, self.C)
 
-    def slow_compute_loss(self, outputs, masks, labels):
-        """
-        Used mainly for checking the actual loss function
-        """
-        labels = torch.autograd.Variable(labels)
-        masks = torch.autograd.Variable(masks)
-        outputs = outputs.view(-1, self.W, self.K)
-        loss = 0.0
-        print outputs.size()
-        for n in range(outputs.size(0)):
-            for t in range(self.W):
-                w1 = torch.sum(outputs[n, t, :]) / outputs.numel()
-                w0 = 1.0 - w1
-                for j in range(self.K):
-                    loss -= w1 * labels[n, t, j] * torch.log(outputs[n, t, j])
-                    loss -= w0 * (1.0 - labels[n, t, j]) * torch.log(1.0 - outputs[n, t, j])
-            print n, loss
-        return loss
+    def compute_slow_softmax_loss(self, activity_scores, activity_labels):
+        N, W, C = activity_scores.size()
+        # todo: add masking
+        activity_labels = torch.autograd.Variable(activity_labels)
+        criterion = torch.nn.CrossEntropyLoss(size_average=False)
+        loss = torch.autograd.Variable(torch.zeros(N))
+        nb_examples = 0
+        for i in range(N):
+            indexes = activity_labels[i] != -1
+            labels = activity_labels[indexes]
+            scores = activity_scores[i][indexes, :].view(-1, C)
+            loss[i] = criterion(scores, labels)
+            nb_examples += indexes.size()[0]
+        return loss.sum() / nb_examples
+
+    def compute_softmax_loss(self, activity_scores, activity_labels):
+        N, W, C = activity_scores.size()
+        # todo: add masking
+        activity_labels = torch.autograd.Variable(activity_labels).view(N * W)
+        activity_scores = activity_scores.view(N * W, C)
+        indexes = activity_labels != -1
+        labels = activity_labels[indexes]
+        scores = activity_scores[indexes, :]
+        criterion = torch.nn.CrossEntropyLoss(size_average=False)
+        loss = criterion(scores, labels)
+        return loss / indexes.size()[0]
 
     def compute_loss_with_BCE(self, outputs, masks, labels, w1):
         """
@@ -77,7 +88,7 @@ class SST(nn.Module):
         masks = torch.autograd.Variable(masks)
         outputs = outputs.mul(masks).view(-1)
         criterion = torch.nn.BCELoss(weight=weights, size_average=False)
-        loss = criterion(outputs, labels)/(N*W)
+        loss = criterion(outputs, labels) / (N * W)
         return loss
 
     def compute_loss(self, outputs, masks, labels):
@@ -108,4 +119,23 @@ class SST(nn.Module):
         all_labels = torch.autograd.Variable(torch.cat((labels.view(-1, 1), (1.0 - labels).view(-1, 1)), 1))
         all_masks = torch.autograd.Variable(torch.cat((masks.view(-1, 1), masks.view(-1, 1)), 1))
         loss = -torch.sum(all_values.mul(all_labels).mul(all_masks)) / outputs.size(0)
+        return loss
+
+    def slow_compute_loss(self, outputs, masks, labels):
+        """
+        Used mainly for checking the actual loss function
+        """
+        labels = torch.autograd.Variable(labels)
+        masks = torch.autograd.Variable(masks)
+        outputs = outputs.view(-1, self.W, self.K)
+        loss = 0.0
+        print outputs.size()
+        for n in range(outputs.size(0)):
+            for t in range(self.W):
+                w1 = torch.sum(outputs[n, t, :]) / outputs.numel()
+                w0 = 1.0 - w1
+                for j in range(self.K):
+                    loss -= w1 * labels[n, t, j] * torch.log(outputs[n, t, j])
+                    loss -= w0 * (1.0 - labels[n, t, j]) * torch.log(1.0 - outputs[n, t, j])
+            print n, loss
         return loss
