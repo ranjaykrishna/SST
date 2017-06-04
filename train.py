@@ -214,7 +214,6 @@ def calculate_stats(proposals, gt_times, duration, args):
             gt_detected[k] = 1
     return gt_detected.sum()*100./len(gt_detected)
 
-
 def evaluate(data_loader, maximum=None):
     model.eval()
     total = len(data_loader)
