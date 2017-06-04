@@ -228,7 +228,7 @@ def compute_map(proposals, scores, gt_times, duration, target_class, args):
             start = max(0, time_step - k - 1) * step_length
             iou_i, k = iou((start, end), gt_times, return_index=True)
             if iou_i > args.iou_threshold:
-                _, pred = torch.max(scores[time_step])
+                _, pred = torch.max(scores[0, time_step, :], 0)
                 if pred == target_class:
                     tp += 1
                 else:
@@ -269,12 +269,11 @@ def evaluate(data_loader, maximum=None):
         recall[batch_idx] = calculate_stats(proposals, gt_times, duration, args)
     return np.mean(recall)
 
-
 def train(epoch, w1):
     if args.debug:
-        map = evaluate_activity_detection(train_evaluator, maximum=args.num_vids_eval)
+        map_score = evaluate_activity_detection(train_evaluator, target, maximum=args.num_vids_eval)
         recall = evaluate(train_evaluator, maximum=args.num_vids_eval)
-        log_entry_map = ('| map-iou={}: {:2.4f}\%'.format(args.iou_threshold, map))
+        log_entry_map = ('| map-iou={}: {:2.4f}\%'.format(args.iou_threshold, map_score))
         log_entry = ('| train recall@{}-iou={}: {:2.4f}\%'.format(args.num_proposals, args.iou_threshold, recall))
         print log_entry
         print log_entry_map
@@ -319,6 +318,7 @@ def train(epoch, w1):
                 f.write('\n')
             start_time = time.time()
 
+target = 0
 
 # Loop over epochs.
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
@@ -326,12 +326,12 @@ for epoch in range(1, args.epochs + 1):
     #    if (epoch+1)%5==0:
     #    	optimizer.param_groups[0]['lr'] /= 2.
     epoch_start_time = time.time()
-    recall = evaluate_activity_detection(val_evaluator, maximum=args.num_vids_eval)
-    map = evaluate_activity_detection(val_evaluator, maximum=args.num_vids_eval)
+    recall = evaluate(val_evaluator, maximum=args.num_vids_eval)
+    map_score = evaluate_activity_detection(val_evaluator, target, maximum=args.num_vids_eval)
     print('-' * 89)
     log_entry = ('| end of epoch {:3d} | time: {:5.2f}s | val recall@{}-iou={}: {:2.2f}\%'.format(
             epoch, (time.time() - epoch_start_time), args.num_proposals, args.iou_threshold, recall))
-    log_entry_map = ('| map-iou={}: {:2.4f}\%'.format(args.iou_threshold, map))
+    log_entry_map = ('| map-iou={}: {:2.4f}\%'.format(args.iou_threshold, map_score))
     print log_entry
     print log_entry_map
     print('-' * 89)

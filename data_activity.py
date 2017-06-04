@@ -98,7 +98,7 @@ class ActivityNet(ProposalDataset):
             for video_id in self.vid_ids[split]:
                 self.durations[video_id] = self.data['database'][video_id]['duration']
                 self.gt_times[video_id] = [ann['segment'] for ann in self.data['database'][video_id]['annotations']]
-                self.gt_activities[video_id] = [self.labels_to_idx[ann['segment']] for ann in self.data['database'][video_id]['annotations']]
+                self.gt_activities[video_id] = [self.labels_to_idx[ann['label']] for ann in self.data['database'][video_id]['annotations']]
 
     def generate_labels(self, args):
         """
@@ -173,6 +173,7 @@ class DataSplit(Dataset):
         self.activity_labels = dataset.activity_labels
         self.durations = dataset.durations
         self.gt_times = dataset.gt_times
+        self.gt_activities = dataset.gt_activities
         self.num_samples = args.num_samples
         self.W = args.W
         self.K = args.K
