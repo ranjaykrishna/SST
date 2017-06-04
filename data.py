@@ -116,7 +116,7 @@ class ActivityNet(ProposalDataset):
             featstamps = [self.timestamp_to_featstamp(x, nfeats, duration) for x in timestamps]
             nb_prop = len(featstamps)
             for i in range(nb_prop):
-                if (featstamps[nb_prop - i - 1][1] - featstamps[nb_prop - i - 1][0]) > args.K / args.iou_threshold:
+                if self.data['database'][video_id]['subset']=='training' and (featstamps[nb_prop - i - 1][1] - featstamps[nb_prop - i - 1][0]) > args.K / args.iou_threshold:
                     # we discard these proposals since they will not be captured for this value of K
                     del featstamps[nb_prop - i - 1]
             if len(featstamps) == 0:

@@ -224,18 +224,31 @@ class TrainSplit(DataSplit):
         proposals_labels = self.proposals_labels[video_id]
         activity_labels = self.activity_labels[video_id]
         nfeats = features.shape[0]
-        nWindows = max(1, 1 + nfeats - self.W)
-        start = np.random.choice(nWindows)-1
-        end = min(nfeats, start + self.W)
+        #nWindows = max(1, 1 + nfeats - self.W)
+        #start = np.random.choice(nWindows)-1
+        #end = min(nfeats, start + self.W)
         masks = self.masks
-        masks[min(nfeats, self.W):, :] = 0
         feature_windows = np.zeros((self.W, features.shape[1]))
         proposals_labels_windows = np.zeros((self.W, self.K))
         activity_labels_windows = np.zeros(self.W)
-        proposals_labels_windows[start:end, :] = proposals_labels[start:end, :]
-        activity_labels_windows[start:end] = activity_labels[start:end]
-        feature_windows[start:end, :] = features[start:end, :]
-        return torch.FloatTensor(feature_windows), masks, torch.Tensor(proposals_labels_windows), torch.Tensor(
+        if nfeats<self.W:
+            masks[nfeats:, :] = 0
+            proposals_labels_windows[:nfeats, :] = proposals_labels
+            activity_labels_windows[:nfeats] = activity_labels
+            feature_windows[:nfeats, :] = features
+        else:
+            nWindows = 1 + nfeats - self.W
+            start = np.random.choice(nWindows)-1
+            end = start + self.W - 1
+            try:
+                proposals_labels_windows[start:end, :] = proposals_labels[start:end, :]
+            except ValueError:
+                import ipdb;
+                ipdb.set_trace()
+            activity_labels_windows[start:end] = activity_labels[start:end]
+            feature_windows[start:end, :] = features[start:end, :]
+        activity_labels_windows = activity_labels_windows.astype(np.int)
+        return torch.FloatTensor(feature_windows), masks, torch.Tensor(proposals_labels_windows), torch.LongTensor(
             activity_labels_windows)
 
 

@@ -56,9 +56,14 @@ class SST(nn.Module):
         loss = torch.autograd.Variable(torch.zeros(N))
         nb_examples = 0
         for i in range(N):
-            indexes = (activity_labels[i] != -1)
-            labels = torch.zeros(indexes.sum())
+            # todo: tmp fix with cuda here, add args as argument after 
+            #z = (activity_labels[i] != -1).data
+            #indexes = torch.range(0, W-1).cuda()[z]
+            #labels = torch.zeros(indexes.sum())
             # labels = activity_labels[indexes.data]
+            indexes = torch.nonzero(activity_labels[i].data)
+            import ipdb;
+            ipdb.set_trace()
             scores = activity_scores[i][indexes.data, :]
             loss[i] = criterion(scores, labels)
             nb_examples += indexes.size()[0]
@@ -67,16 +72,15 @@ class SST(nn.Module):
     def compute_softmax_loss(self, activity_scores, activity_labels):
         N, W, C = activity_scores.size()
         # todo: add masking
-        activity_labels = torch.autograd.Variable(activity_labels).view(N * W)
+        activity_labels = activity_labels.view(N * W)
         activity_scores = activity_scores.view(N * W, C)
-        indexes = (activity_labels != -1).data
-        labels = activity_labels[indexes]
-        import ipdb;
-        ipdb.set_trace()
-        scores = activity_scores[indexes, :]
+        indexes = torch.autograd.Variable(torch.nonzero(activity_labels+1).view(-1))
+        activity_labels = torch.autograd.Variable(activity_labels)
+        target_labels = activity_labels.index_select(0, indexes) 
+        target_scores = activity_scores.index_select(0, indexes) 
         criterion = torch.nn.CrossEntropyLoss(size_average=False)
-        loss = criterion(scores, labels)
-        return loss / indexes.size()[0]
+        loss = criterion(target_scores, target_labels)
+        return loss / (N * W)
 
     def compute_loss_with_BCE(self, outputs, masks, labels, w1):
         """
@@ -92,7 +96,7 @@ class SST(nn.Module):
         masks = torch.autograd.Variable(masks)
         outputs = outputs.mul(masks).view(-1)
         criterion = torch.nn.BCELoss(weight=weights, size_average=False)
-        loss = criterion(outputs, labels) / (N * W)
+        loss = criterion(outputs, labels) / (N * W)# * K)
         return loss
 
     def compute_loss(self, outputs, masks, labels):
